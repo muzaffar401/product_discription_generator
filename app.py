@@ -335,11 +335,12 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         sku_lower = sku.lower()
                         is_food_sku = any(keyword in sku_lower for keyword in food_keywords)
                         
-                        # Check if image name contains non-food keywords
-                        image_lower = image_name.lower() if image_name else ""
+                        # Check if image name contains non-food keywords (use base name without extension)
+                        excel_name, excel_extension = os.path.splitext(image_name)
+                        image_lower = excel_name.lower() if excel_name else ""
                         has_non_food_image = any(keyword in image_lower for keyword in non_food_keywords)
                         
-                        print(f"Pre-validation: SKU food-like={is_food_sku}, Image non-food-like={has_non_food_image}")
+                        print(f"Pre-validation: SKU='{sku}' (food-like={is_food_sku}), Image base='{excel_name}' (non-food-like={has_non_food_image})")
                         
                         # If SKU suggests food but image suggests non-food, it's a clear mismatch
                         if is_food_sku and has_non_food_image:
@@ -356,6 +357,8 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                             remove_processing_lock()
                             return  # Exit the function immediately
                         
+                        print(f"Pre-validation PASSED - proceeding to AI validation")
+                        
                         # Enhanced validation with web search
                         print(f"Making ENHANCED validation API call for {current_item_identifier}")
                         validation_data = generator.enhanced_image_validation(sku, image_bytes, mime_type)
@@ -365,7 +368,7 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         confidence = validation_data.get("confidence", "medium")
                         web_search_used = validation_data.get("web_search_used", False)
                         
-                        print(f"Validation result: match={is_match}, confidence={confidence}, web_search={web_search_used}")
+                        print(f"AI Validation result: match={is_match}, confidence={confidence}, web_search={web_search_used}")
                         
                         if not is_match:
                             sku_type = validation_data.get('sku_type', 'Unknown')
@@ -382,7 +385,7 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                                 error_message += f"Web search was used for validation. "
                             error_message += f"Reason: {reason}"
                             
-                            print(f"VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
+                            print(f"AI VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
                             # Set error status immediately
                             status = {
                                 'current': processed_count, 'total': total_products,
@@ -394,7 +397,7 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                             remove_processing_lock()
                             return  # Exit the function immediately
                         else:
-                            print(f"Enhanced validation PASSED for {sku} (confidence: {confidence})")
+                            print(f"AI validation PASSED for {sku} (confidence: {confidence})")
 
                         print(f"Making description API call for {current_item_identifier}")
                         result = generator.generate_product_description_with_image(sku, image_name, image_bytes, mime_type)

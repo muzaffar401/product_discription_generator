@@ -78,18 +78,37 @@ class ProductDescriptionGenerator:
                         image_parts = [{"mime_type": mime_type, "data": image_bytes}]
                         content.append(image_parts[0])
                     
-                    # Corrected generation_config and added request_options for timeout
+                    # Add timeout and safety settings
                     response = model.generate_content(
                         content,
-                        generation_config={
-                            "max_output_tokens": 400,
-                            "temperature": 0.7
-                        },
-                        request_options={"timeout": 60} # Add timeout
+                        generation_config=genai.types.GenerationConfig(
+                            max_output_tokens=400,
+                            temperature=0.7
+                        ),
+                        safety_settings=[
+                            {
+                                "category": "HARM_CATEGORY_HARASSMENT",
+                                "threshold": "BLOCK_NONE"
+                            },
+                            {
+                                "category": "HARM_CATEGORY_HATE_SPEECH",
+                                "threshold": "BLOCK_NONE"
+                            },
+                            {
+                                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                                "threshold": "BLOCK_NONE"
+                            },
+                            {
+                                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                                "threshold": "BLOCK_NONE"
+                            }
+                        ]
                     )
                     
-                    # Simplified response handling
-                    return response.text if response.text else "API_CALL_FAILED"
+                    if response.text:
+                        return response.text
+                    else:
+                        return "API_CALL_FAILED"
                         
                 except Exception as e:
                     print(f"Gemini API call failed on attempt {attempt + 1}: {e}")
@@ -100,7 +119,18 @@ class ProductDescriptionGenerator:
             return "API_CALL_FAILED"
 
     def generate_product_description(self, sku):
-        prompt = f"Generate a compelling product description for a product with SKU: {sku}. The description should be marketing-friendly, around 80-120 words, and highlight key features and benefits. Format it as a single paragraph."
+        prompt = f"""Generate a compelling product description for a product with SKU: {sku}. 
+
+The description should be marketing-friendly, EXACTLY 1000 characters (including spaces), and highlight key features and benefits.
+
+IMPORTANT: Format the description in 2-3 paragraphs with EXACTLY 1000 characters:
+- First paragraph: Introduce the product and its main benefits
+- Second paragraph: Describe key features and specifications  
+- Third paragraph (optional): Add any additional benefits, usage tips, or call-to-action
+
+Make each paragraph engaging and informative. Use bullet points or numbered lists within paragraphs if needed for better readability.
+
+CRITICAL: The final description must be EXACTLY 1000 characters - no more, no less."""
         return self._make_api_call(prompt)
 
     def find_related_products(self, current_sku_or_title, all_skus, num_related=3):
@@ -128,10 +158,16 @@ Return ONLY the SKUs of the most related products, separated by a pipe '|'. Do n
 
 Instructions:
 1.  **Product Title**: Create a concise, SEO-friendly, and accurate title for the product in the image. If the image is unclear or you cannot confidently identify the product, return "Unknown Product".
-2.  **Product Description**: Write a marketing-friendly description of 80-120 words. Highlight key features and benefits. If the title is "Unknown Product", the description should be "Could not generate description from image.".
+2.  **Product Description**: Write a marketing-friendly description of EXACTLY 1000 characters (including spaces) in 2-3 paragraphs:
+    - First paragraph: Introduce the product and its main benefits
+    - Second paragraph: Describe key features and specifications
+    - Third paragraph (optional): Add any additional benefits, usage tips, or call-to-action
+    If the title is "Unknown Product", the description should be "Could not generate description from image.".
+
+CRITICAL: The final description must be EXACTLY 1000 characters - no more, no less.
 
 Return the result as a single raw JSON object with two keys: "title" and "description". Do not wrap it in markdown or any other text.
-Example for a clear image: {"title": "Shan Achar Ghost Masala 50g", "description": "A delicious spice mix..."}
+Example for a clear image: {"title": "Shan Achar Ghost Masala 50g", "description": "Introducing the authentic Shan Achar Ghost Masala, a premium spice blend that brings the traditional flavors of South Asian cuisine to your kitchen. This carefully crafted masala combines the finest quality spices to create a rich, aromatic seasoning that elevates any dish to new heights of flavor.\n\nOur signature blend features a perfect balance of coriander, cumin, turmeric, and other hand-selected spices that have been roasted and ground to perfection. Each 50g pack contains the ideal proportions of ingredients, ensuring consistent taste and quality in every use. The masala is free from artificial preservatives and additives, maintaining the natural goodness of pure spices.\n\nWhether you're preparing traditional curries, marinating meats, or adding depth to vegetarian dishes, this versatile masala is your go-to seasoning. Its robust flavor profile makes it perfect for both everyday cooking and special occasions. Experience the authentic taste that has made Shan a trusted name in households worldwide."}
 Example for an unclear image: {"title": "Unknown Product", "description": "Could not generate description from image."}
 """
         if sku:

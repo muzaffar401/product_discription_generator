@@ -129,6 +129,39 @@ def load_progress(output_file):
         print(f"Error loading progress: {str(e)}")
     return None
 
+def validate_image_extension(image_name_in_excel, uploaded_file):
+    """
+    Validate that the image file extension in Excel matches the actual uploaded file extension.
+    
+    Args:
+        image_name_in_excel (str): The image name from Excel (may or may not include extension)
+        uploaded_file: The uploaded file object from Streamlit
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    try:
+        # Get the actual file extension from uploaded file
+        actual_extension = os.path.splitext(uploaded_file.name)[1].lower()
+        
+        # Check if Excel image_name has an extension
+        excel_name, excel_extension = os.path.splitext(image_name_in_excel)
+        excel_extension = excel_extension.lower()
+        
+        # If Excel has no extension, that's fine (backward compatibility)
+        if not excel_extension:
+            return True, None
+        
+        # If Excel has extension, it must match the uploaded file
+        if excel_extension != actual_extension:
+            error_msg = f"❌ Extension mismatch for '{image_name_in_excel}': Excel specifies '{excel_extension}' but uploaded file has '{actual_extension}'"
+            return False, error_msg
+        
+        return True, None
+        
+    except Exception as e:
+        return False, f"❌ Error validating extension for '{image_name_in_excel}': {str(e)}"
+
 def test_api_connection(generator):
     """Test API connection with a simple prompt"""
     try:
@@ -243,7 +276,13 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                 if 'image_name' in df.columns and pd.notna(row.get('image_name')) and str(row.get('image_name')).strip():
                     image_name = str(row['image_name'])
                 
-                image_file = image_name_mapping.get(image_name) if image_name and image_name_mapping else None
+                # Get image file - handle both with and without extensions
+                image_file = None
+                if image_name and image_name_mapping:
+                    # Extract base name (without extension) for lookup
+                    excel_name, excel_extension = os.path.splitext(image_name)
+                    image_file = image_name_mapping.get(excel_name)
+                
                 current_item_identifier = sku or image_name or f"row {i+1}"
 
                 print(f"Processing: {current_item_identifier}")
@@ -960,6 +999,24 @@ def main():
                                     generator = ProductDescriptionGenerator(use_openai=use_openai)
                                     test_image_file = image_name_mapping[test_image_name]
                                     
+                                    # Check for extension mismatch in test
+                                    test_image_name_with_ext = None
+                                    if 'image_name' in df.columns:
+                                        # Find the corresponding image_name from Excel
+                                        for _, row in df.iterrows():
+                                            if pd.notna(row.get('image_name')) and str(row.get('image_name')).strip():
+                                                excel_name, excel_ext = os.path.splitext(str(row['image_name']))
+                                                if excel_name == test_image_name:
+                                                    test_image_name_with_ext = str(row['image_name'])
+                                                    break
+                                    
+                                    if test_image_name_with_ext:
+                                        is_ext_valid, ext_error = validate_image_extension(test_image_name_with_ext, test_image_file)
+                                        if not is_ext_valid:
+                                            st.error(f"❌ {ext_error}")
+                                            st.info("⚠️ Extension mismatch detected. This would prevent processing in batch mode.")
+                                            return
+                                    
                                     with st.spinner("Testing validation..."):
                                         is_valid, message = test_validation_logic(generator, test_sku, test_image_file)
                                         
@@ -1068,16 +1125,54 @@ def main():
                 return
             
             # Create a mapping of image names without extensions to actual uploaded files
+            # Also validate extensions if specified in Excel
             image_name_mapping = {}
+            extension_errors = []
+            
             for img in uploaded_images:
                 base_name = os.path.splitext(img.name)[0]
                 image_name_mapping[base_name] = img
+            
+            # Validate extensions for images that have extensions specified in Excel
+            if 'image_name' in df.columns:
+                image_name_set = set(str(x) for x in df['image_name'] if pd.notna(x) and str(x).strip() != '')
+                
+                for image_name in image_name_set:
+                    # Check if this image name has an extension in Excel
+                    excel_name, excel_extension = os.path.splitext(image_name)
+                    if excel_extension:  # If Excel specifies an extension
+                        # Find the corresponding uploaded file
+                        uploaded_file = None
+                        for img in uploaded_images:
+                            if os.path.splitext(img.name)[0] == excel_name:
+                                uploaded_file = img
+                                break
+                        
+                        if uploaded_file:
+                            # Validate the extension
+                            is_valid, error_msg = validate_image_extension(image_name, uploaded_file)
+                            if not is_valid:
+                                extension_errors.append(error_msg)
+            
+            # Show extension validation errors if any
+            if extension_errors:
+                st.markdown("<div class='simple-error'>❌ <b>File Extension Mismatches Found:</b></div>", unsafe_allow_html=True)
+                for error in extension_errors:
+                    st.markdown(f"<div class='simple-error'>{error}</div>", unsafe_allow_html=True)
+                st.markdown("<div class='simple-error'>Please ensure the file extensions in your Excel file match the actual uploaded file extensions.</div>", unsafe_allow_html=True)
+                return
 
-            # Only check for missing images for rows where image_name is present and not blank/NaN
+            # Check for missing images - handle both with and without extensions
             if 'image_name' in df.columns:
                 image_name_set = set(str(x) for x in df['image_name'] if pd.notna(x) and str(x).strip() != '')
                 uploaded_image_bases = set(image_name_mapping.keys())
-                missing_images = image_name_set - uploaded_image_bases
+                
+                # Check for missing images by comparing base names (without extensions)
+                missing_images = set()
+                for image_name in image_name_set:
+                    excel_name, excel_extension = os.path.splitext(image_name)
+                    if excel_name not in uploaded_image_bases:
+                        missing_images.add(image_name)
             else:
                 missing_images = set()
 

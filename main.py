@@ -168,14 +168,15 @@ class ProductDescriptionGenerator:
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
         Enhanced validation that searches for the product online and compares with user's image
+        Uses lenient validation - only rejects completely opposite images
         """
         try:
             # Step 1: Search for product information online
             search_result = self.search_product_online(sku)
             
-            # Step 2: Create enhanced validation prompt with web search context
+            # Step 2: Create lenient validation prompt with web search context
             enhanced_prompt = f"""
-ENHANCED PRODUCT VALIDATION TASK:
+ENHANCED PRODUCT VALIDATION TASK (LENIENT):
 
 You are validating a product listing with SKU: "{sku}"
 
@@ -186,22 +187,30 @@ WEB SEARCH CONTEXT:
 
 USER'S IMAGE: [Image will be provided]
 
-VALIDATION INSTRUCTIONS:
+LENIENT VALIDATION INSTRUCTIONS:
 1. Analyze the user's image carefully
 2. Consider the SKU name and what product it should represent
 3. Use the web search context to understand what this product should look like
-4. Compare the user's image with what the product should be based on:
-   - Brand consistency
-   - Product type/category
-   - Color schemes
-   - Packaging design
-   - Overall visual appearance
+4. Be LENIENT - only reject if the image is COMPLETELY OPPOSITE and DIFFERENT
 
-VALIDATION CRITERIA:
-- If the image shows the correct product type and brand → MATCH
-- If the image shows a completely different product → MISMATCH
-- If the image shows the right category but wrong brand → MISMATCH
-- If the image shows the right brand but wrong product → MISMATCH
+VALIDATION CRITERIA (LENIENT):
+- If the image shows ANYTHING related to the product → MATCH (ALLOW)
+- If the image shows the same category of product → MATCH (ALLOW)
+- If the image shows similar products → MATCH (ALLOW)
+- If the image shows the right brand but different variant → MATCH (ALLOW)
+- If the image shows packaging or branding related to the product → MATCH (ALLOW)
+- ONLY reject if image shows COMPLETELY DIFFERENT category (e.g., food vs electronics)
+
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "BAISAN" (food) + Image: any food product → MATCH
+- SKU: "SHAN_MASALA" (spice) + Image: any spice or food item → MATCH
+- SKU: "COCA_COLA" (drink) + Image: any beverage or food → MATCH
+- SKU: "NIKE_SHOES" + Image: any footwear → MATCH
+
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "BAISAN" (food) + Image: electronics/phones → MISMATCH
+- SKU: "SHAN_MASALA" (spice) + Image: clothing/shoes → MISMATCH
+- SKU: "COCA_COLA" (drink) + Image: furniture/cars → MISMATCH
 
 Return ONLY this JSON format:
 {{
@@ -215,7 +224,7 @@ Return ONLY this JSON format:
   "web_search_used": true/false
 }}
 
-Be very strict and thorough in your analysis.
+Be LENIENT - only reject if completely opposite categories.
 """
             
             # Make the enhanced validation call
@@ -237,42 +246,41 @@ Be very strict and thorough in your analysis.
     def simple_image_validation(self, sku, image_bytes, mime_type):
         """
         Simple validation as fallback when enhanced validation fails
+        Uses lenient validation - only rejects completely opposite images
         """
         readable_sku = sku.replace('_', ' ').replace('__', ' ')
         
         simple_prompt = f"""
-CRITICAL TASK: You are validating product listings. The SKU "{sku}" suggests a product named "{readable_sku}".
+LENIENT PRODUCT VALIDATION TASK: You are validating product listings. The SKU "{sku}" suggests a product named "{readable_sku}".
 
 You MUST analyze the image and determine if it matches the SKU.
 
-RULES:
-1. If the image shows ANYTHING different from what the SKU suggests, it's a MISMATCH
-2. Food SKU + Non-food image = MISMATCH
-3. Clothing SKU + Electronics image = MISMATCH
-4. Any obvious mismatch = STOP PROCESSING
+LENIENT RULES:
+1. Be GENEROUS - only reject if the image shows COMPLETELY DIFFERENT category
+2. If the image shows ANYTHING related to the product → MATCH (ALLOW)
+3. If the image shows similar products → MATCH (ALLOW)
+4. If the image shows the same category → MATCH (ALLOW)
+5. ONLY reject if image shows COMPLETELY OPPOSITE category
 
-EXAMPLES OF MISMATCHES:
-- SKU: "BAISAN" (food) + Image: shoes = MISMATCH
-- SKU: "SHAN_MASALA" (spice) + Image: phone = MISMATCH
-- SKU: "COCA_COLA" (drink) + Image: shirt = MISMATCH
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "BAISAN" (food) + Image: any food product → MATCH
+- SKU: "SHAN_MASALA" (spice) + Image: any spice or food → MATCH
+- SKU: "COCA_COLA" (drink) + Image: any beverage → MATCH
+
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "BAISAN" (food) + Image: electronics/phones → MISMATCH
+- SKU: "SHAN_MASALA" (spice) + Image: clothing/shoes → MISMATCH
+- SKU: "COCA_COLA" (drink) + Image: furniture/cars → MISMATCH
 
 Return ONLY this JSON format:
 {{
-  "match": false,
+  "match": true/false,
   "sku_type": "what the SKU suggests",
   "image_type": "what the image shows",
-  "reason": "why they don't match"
+  "reason": "why they match or don't match"
 }}
 
-OR if they match:
-{{
-  "match": true,
-  "sku_type": "what the SKU suggests", 
-  "image_type": "what the image shows",
-  "reason": "why they match"
-}}
-
-Be very strict. If in doubt, mark as mismatch.
+Be LENIENT - only reject if completely opposite categories.
 """
         
         validation_response = self._make_api_call(simple_prompt, image_bytes=image_bytes, mime_type=mime_type)
@@ -285,10 +293,10 @@ Be very strict. If in doubt, mark as mismatch.
             return validation_data
         except json.JSONDecodeError:
             return {
-                'match': False,
+                'match': True,  # Default to match if validation fails
                 'sku_type': 'Unknown',
                 'image_type': 'Unknown',
-                'reason': 'Validation parsing failed',
+                'reason': 'Validation parsing failed, defaulting to match',
                 'web_search_used': False,
                 'confidence': 'low'
             }

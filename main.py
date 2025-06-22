@@ -14,6 +14,7 @@ import base64
 import requests
 from urllib.parse import quote_plus
 import urllib.parse
+from serpapi import GoogleSearch
 
 # Load environment variables
 load_dotenv()
@@ -132,6 +133,8 @@ class ProductDescriptionGenerator:
             
             # Use a simple web search approach (you can enhance this with proper search APIs)
             search_url = f"https://www.google.com/search?q={quote_plus(search_query + ' product')}"
+
+            print(search_url)
             
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -165,6 +168,168 @@ class ProductDescriptionGenerator:
                 'found_results': False
             }
 
+    def get_image_from_web(self, sku):
+        """
+        Scrapes Google Images for a given SKU and returns the first image URL and data.
+        Uses SerpAPI for reliable image search.
+        """
+        try:
+            serpapi_key = os.getenv("SERPAPI_API_KEY")
+            if not serpapi_key:
+                print("SERPAPI_API_KEY not found - skipping web image search")
+                return None
+            
+            params = {
+                "q": sku,
+                "engine": "google_images",
+                "ijn": "0",
+                "api_key": serpapi_key,
+            }
+            search = GoogleSearch(params)
+            results = search.get_dict()
+            
+            if "images_results" in results and results["images_results"]:
+                image_url = results["images_results"][0]["original"]
+                
+                # Download the image
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+                response = requests.get(image_url, headers=headers, timeout=15)
+                response.raise_for_status()
+                
+                return {
+                    'url': image_url,
+                    'data': response.content,
+                    'mime_type': response.headers.get('content-type', 'image/jpeg')
+                }
+        except Exception as e:
+            print(f"Error during web image scraping for SKU '{sku}': {e}")
+            return None
+
+    def compare_images_with_ai(self, web_image_data, uploaded_image_data, web_mime_type, uploaded_mime_type):
+        """
+        Compares two images using AI (Gemini or OpenAI) to determine if they show the same product.
+        """
+        try:
+            if self.use_openai:
+                # Use OpenAI for image comparison
+                prompt = "Are these two images of the same product? Answer with only 'Yes' or 'No'."
+                
+                # Prepare images for OpenAI
+                web_image_base64 = base64.b64encode(web_image_data).decode('utf-8')
+                uploaded_image_base64 = base64.b64encode(uploaded_image_data).decode('utf-8')
+                
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{web_mime_type};base64,{web_image_base64}"}
+                            },
+                            {
+                                "type": "image_url", 
+                                "image_url": {"url": f"data:{uploaded_mime_type};base64,{uploaded_image_base64}"}
+                            }
+                        ]
+                    }
+                ]
+                
+                response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    max_tokens=10,
+                    timeout=60
+                )
+                
+                result = response.choices[0].message.content.strip().lower()
+                return "yes" in result
+                
+            else:
+                # Use Gemini for image comparison
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                
+                # Prepare images for Gemini
+                web_image = Image.open(io.BytesIO(web_image_data))
+                uploaded_image = Image.open(io.BytesIO(uploaded_image_data))
+                
+                response = model.generate_content([
+                    "Are these two images of the same product? Answer with only 'Yes' or 'No'.",
+                    web_image,
+                    uploaded_image,
+                ])
+                
+                result = response.text.strip().lower()
+                return "yes" in result
+                
+        except Exception as e:
+            print(f"Error during image comparison: {e}")
+            return None
+
+    def enhanced_image_validation_with_web_comparison(self, sku, image_bytes, mime_type):
+        """
+        Enhanced validation that includes web image scraping and comparison
+        This provides the most accurate validation by comparing with real product images
+        """
+        try:
+            print(f"Starting enhanced validation with web comparison for SKU: {sku}")
+            
+            # Step 1: Try to get a web image for comparison
+            web_image_info = self.get_image_from_web(sku)
+            
+            if web_image_info:
+                print(f"Found web image for comparison: {web_image_info['url']}")
+                
+                # Step 2: Compare the uploaded image with the web image
+                comparison_result = self.compare_images_with_ai(
+                    web_image_info['data'], 
+                    image_bytes, 
+                    web_image_info['mime_type'], 
+                    mime_type
+                )
+                
+                if comparison_result is not None:
+                    if comparison_result:
+                        print(f"Web image comparison: MATCH for SKU {sku}")
+                        return {
+                            'match': True,
+                            'sku_type': f'Product matching SKU "{sku}"',
+                            'image_type': 'Product image matching web reference',
+                            'brand_match': True,
+                            'product_category_match': True,
+                            'confidence': 'high',
+                            'reason': 'Image matches web reference for this product',
+                            'web_search_used': True,
+                            'web_comparison_used': True
+                        }
+                    else:
+                        print(f"Web image comparison: MISMATCH for SKU {sku}")
+                        return {
+                            'match': False,
+                            'sku_type': f'Product matching SKU "{sku}"',
+                            'image_type': 'Product image that does not match web reference',
+                            'brand_match': False,
+                            'product_category_match': False,
+                            'confidence': 'high',
+                            'reason': 'Image does not match web reference for this product',
+                            'web_search_used': True,
+                            'web_comparison_used': True
+                        }
+                else:
+                    print(f"Web image comparison failed, falling back to standard validation for SKU {sku}")
+            else:
+                print(f"No web image found for SKU {sku}, using standard validation")
+            
+            # Fallback to standard enhanced validation if web comparison fails
+            return self.enhanced_image_validation(sku, image_bytes, mime_type)
+            
+        except Exception as e:
+            print(f"Enhanced validation with web comparison failed: {str(e)}")
+            # Fallback to standard enhanced validation
+            return self.enhanced_image_validation(sku, image_bytes, mime_type)
+
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
         Enhanced validation that searches for the product online and compares with user's image
@@ -173,6 +338,8 @@ class ProductDescriptionGenerator:
         try:
             # Step 1: Search for product information online
             search_result = self.search_product_online(sku)
+
+            print(search_result)
             
             # Step 2: Create lenient validation prompt with web search context
             enhanced_prompt = f"""

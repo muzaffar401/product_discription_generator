@@ -129,6 +129,39 @@ def load_progress(output_file):
         print(f"Error loading progress: {str(e)}")
     return None
 
+def validate_image_extension(image_name_in_excel, uploaded_file):
+    """
+    Validate that the image file extension in Excel matches the actual uploaded file extension.
+    
+    Args:
+        image_name_in_excel (str): The image name from Excel (may or may not include extension)
+        uploaded_file: The uploaded file object from Streamlit
+    
+    Returns:
+        tuple: (is_valid, error_message)
+    """
+    try:
+        # Get the actual file extension from uploaded file
+        actual_extension = os.path.splitext(uploaded_file.name)[1].lower()
+        
+        # Check if Excel image_name has an extension
+        excel_name, excel_extension = os.path.splitext(image_name_in_excel)
+        excel_extension = excel_extension.lower()
+        
+        # If Excel has no extension, that's fine (backward compatibility)
+        if not excel_extension:
+            return True, None
+        
+        # If Excel has extension, it must match the uploaded file
+        if excel_extension != actual_extension:
+            error_msg = f"❌ Extension mismatch for '{image_name_in_excel}': Excel specifies '{excel_extension}' but uploaded file has '{actual_extension}'"
+            return False, error_msg
+        
+        return True, None
+        
+    except Exception as e:
+        return False, f"❌ Error validating extension for '{image_name_in_excel}': {str(e)}"
+
 def test_api_connection(generator):
     """Test API connection with a simple prompt"""
     try:
@@ -155,12 +188,13 @@ def test_validation_logic(generator, test_sku, test_image_file):
         img = Image.open(io.BytesIO(image_bytes))
         mime_type = Image.MIME[img.format]
         
-        # Use enhanced validation with web search
-        validation_data = generator.enhanced_image_validation(test_sku, image_bytes, mime_type)
+        # Use enhanced validation with web comparison
+        validation_data = generator.enhanced_image_validation_with_web_comparison(test_sku, image_bytes, mime_type)
         
         is_match = validation_data.get("match", False)
         confidence = validation_data.get("confidence", "medium")
         web_search_used = validation_data.get("web_search_used", False)
+        web_comparison_used = validation_data.get("web_comparison_used", False)
         
         if not is_match:
             sku_type = validation_data.get('sku_type', 'Unknown')
@@ -174,13 +208,17 @@ def test_validation_logic(generator, test_sku, test_image_file):
             error_message += f"Confidence: {confidence}. "
             if web_search_used:
                 error_message += f"Web search was used. "
+            if web_comparison_used:
+                error_message += f"Web image comparison was used. "
             error_message += f"Reason: {reason}"
             
             return False, error_message
         else:
             success_message = f"Enhanced validation passed. Confidence: {confidence}. "
             if web_search_used:
-                success_message += "Web search was used for validation."
+                success_message += "Web search was used for validation. "
+            if web_comparison_used:
+                success_message += "Web image comparison was used. "
             else:
                 success_message += "Simple validation was used."
             return True, success_message
@@ -243,7 +281,13 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                 if 'image_name' in df.columns and pd.notna(row.get('image_name')) and str(row.get('image_name')).strip():
                     image_name = str(row['image_name'])
                 
-                image_file = image_name_mapping.get(image_name) if image_name and image_name_mapping else None
+                # Get image file - handle both with and without extensions
+                image_file = None
+                if image_name and image_name_mapping:
+                    # Extract base name (without extension) for lookup
+                    excel_name, excel_extension = os.path.splitext(image_name)
+                    image_file = image_name_mapping.get(excel_name)
+                
                 current_item_identifier = sku or image_name or f"row {i+1}"
 
                 print(f"Processing: {current_item_identifier}")
@@ -296,11 +340,12 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         sku_lower = sku.lower()
                         is_food_sku = any(keyword in sku_lower for keyword in food_keywords)
                         
-                        # Check if image name contains non-food keywords
-                        image_lower = image_name.lower() if image_name else ""
+                        # Check if image name contains non-food keywords (use base name without extension)
+                        excel_name, excel_extension = os.path.splitext(image_name)
+                        image_lower = excel_name.lower() if excel_name else ""
                         has_non_food_image = any(keyword in image_lower for keyword in non_food_keywords)
                         
-                        print(f"Pre-validation: SKU food-like={is_food_sku}, Image non-food-like={has_non_food_image}")
+                        print(f"Pre-validation: SKU='{sku}' (food-like={is_food_sku}), Image base='{excel_name}' (non-food-like={has_non_food_image})")
                         
                         # If SKU suggests food but image suggests non-food, it's a clear mismatch
                         if is_food_sku and has_non_food_image:
@@ -317,16 +362,19 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                             remove_processing_lock()
                             return  # Exit the function immediately
                         
+                        print(f"Pre-validation PASSED - proceeding to AI validation")
+                        
                         # Enhanced validation with web search
                         print(f"Making ENHANCED validation API call for {current_item_identifier}")
-                        validation_data = generator.enhanced_image_validation(sku, image_bytes, mime_type)
+                        validation_data = generator.enhanced_image_validation_with_web_comparison(sku, image_bytes, mime_type)
                         print(f"Enhanced validation result: {validation_data}")
                         
                         is_match = validation_data.get("match", False)
                         confidence = validation_data.get("confidence", "medium")
                         web_search_used = validation_data.get("web_search_used", False)
+                        web_comparison_used = validation_data.get("web_comparison_used", False)
                         
-                        print(f"Validation result: match={is_match}, confidence={confidence}, web_search={web_search_used}")
+                        print(f"AI Validation result: match={is_match}, confidence={confidence}, web_search={web_search_used}, web_comparison={web_comparison_used}")
                         
                         if not is_match:
                             sku_type = validation_data.get('sku_type', 'Unknown')
@@ -341,9 +389,11 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                             error_message += f"Confidence: {confidence}. "
                             if web_search_used:
                                 error_message += f"Web search was used for validation. "
+                            if web_comparison_used:
+                                error_message += f"Web image comparison was used. "
                             error_message += f"Reason: {reason}"
                             
-                            print(f"VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
+                            print(f"AI VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
                             # Set error status immediately
                             status = {
                                 'current': processed_count, 'total': total_products,
@@ -355,7 +405,7 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                             remove_processing_lock()
                             return  # Exit the function immediately
                         else:
-                            print(f"Enhanced validation PASSED for {sku} (confidence: {confidence})")
+                            print(f"AI validation PASSED for {sku} (confidence: {confidence})")
 
                         print(f"Making description API call for {current_item_identifier}")
                         result = generator.generate_product_description_with_image(sku, image_name, image_bytes, mime_type)
@@ -744,6 +794,29 @@ def main():
         if st.button("🔄 Refresh Status", type="secondary", help="Manually refresh the processing status"):
             st.rerun()
 
+    # Check for required API keys
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    serpapi_key = os.getenv("SERPAPI_API_KEY")
+    
+    if not gemini_key and not openai_key:
+        st.markdown("<div class='simple-error'>❌ <b>API Key Required:</b> Please set either GEMINI_API_KEY or OPENAI_API_KEY in your .env file.</div>", unsafe_allow_html=True)
+        return
+    
+    # Show warning if SERPAPI_API_KEY is missing (optional but recommended)
+    if not serpapi_key:
+        st.markdown("""
+            <div class='simple-info'>
+                <b>💡 Enhanced Validation Available:</b> Add SERPAPI_API_KEY to your .env file to enable web image comparison for more accurate validation.
+                <br><br>
+                <strong>How to get SERPAPI_API_KEY:</strong>
+                <br>1. Visit <a href="https://serpapi.com/" target="_blank">serpapi.com</a>
+                <br>2. Sign up for a free account
+                <br>3. Get your API key from the dashboard
+                <br>4. Add it to your .env file as: SERPAPI_API_KEY="your_key_here"
+            </div>
+        """, unsafe_allow_html=True)
+
     # Simple error check
     try:
         status = load_status()
@@ -960,6 +1033,24 @@ def main():
                                     generator = ProductDescriptionGenerator(use_openai=use_openai)
                                     test_image_file = image_name_mapping[test_image_name]
                                     
+                                    # Check for extension mismatch in test
+                                    test_image_name_with_ext = None
+                                    if 'image_name' in df.columns:
+                                        # Find the corresponding image_name from Excel
+                                        for _, row in df.iterrows():
+                                            if pd.notna(row.get('image_name')) and str(row.get('image_name')).strip():
+                                                excel_name, excel_ext = os.path.splitext(str(row['image_name']))
+                                                if excel_name == test_image_name:
+                                                    test_image_name_with_ext = str(row['image_name'])
+                                                    break
+                                    
+                                    if test_image_name_with_ext:
+                                        is_ext_valid, ext_error = validate_image_extension(test_image_name_with_ext, test_image_file)
+                                        if not is_ext_valid:
+                                            st.error(f"❌ {ext_error}")
+                                            st.info("⚠️ Extension mismatch detected. This would prevent processing in batch mode.")
+                                            return
+                                    
                                     with st.spinner("Testing validation..."):
                                         is_valid, message = test_validation_logic(generator, test_sku, test_image_file)
                                         
@@ -1068,16 +1159,54 @@ def main():
                 return
             
             # Create a mapping of image names without extensions to actual uploaded files
+            # Also validate extensions if specified in Excel
             image_name_mapping = {}
+            extension_errors = []
+            
             for img in uploaded_images:
                 base_name = os.path.splitext(img.name)[0]
                 image_name_mapping[base_name] = img
+            
+            # Validate extensions for images that have extensions specified in Excel
+            if 'image_name' in df.columns:
+                image_name_set = set(str(x) for x in df['image_name'] if pd.notna(x) and str(x).strip() != '')
+                
+                for image_name in image_name_set:
+                    # Check if this image name has an extension in Excel
+                    excel_name, excel_extension = os.path.splitext(image_name)
+                    if excel_extension:  # If Excel specifies an extension
+                        # Find the corresponding uploaded file
+                        uploaded_file = None
+                        for img in uploaded_images:
+                            if os.path.splitext(img.name)[0] == excel_name:
+                                uploaded_file = img
+                                break
+                        
+                        if uploaded_file:
+                            # Validate the extension
+                            is_valid, error_msg = validate_image_extension(image_name, uploaded_file)
+                            if not is_valid:
+                                extension_errors.append(error_msg)
+            
+            # Show extension validation errors if any
+            if extension_errors:
+                st.markdown("<div class='simple-error'>❌ <b>File Extension Mismatches Found:</b></div>", unsafe_allow_html=True)
+                for error in extension_errors:
+                    st.markdown(f"<div class='simple-error'>{error}</div>", unsafe_allow_html=True)
+                st.markdown("<div class='simple-error'>Please ensure the file extensions in your Excel file match the actual uploaded file extensions.</div>", unsafe_allow_html=True)
+                return
 
-            # Only check for missing images for rows where image_name is present and not blank/NaN
+            # Check for missing images - handle both with and without extensions
             if 'image_name' in df.columns:
                 image_name_set = set(str(x) for x in df['image_name'] if pd.notna(x) and str(x).strip() != '')
                 uploaded_image_bases = set(image_name_mapping.keys())
-                missing_images = image_name_set - uploaded_image_bases
+                
+                # Check for missing images by comparing base names (without extensions)
+                missing_images = set()
+                for image_name in image_name_set:
+                    excel_name, excel_extension = os.path.splitext(image_name)
+                    if excel_name not in uploaded_image_bases:
+                        missing_images.add(image_name)
             else:
                 missing_images = set()
 
@@ -1188,6 +1317,36 @@ def main():
                 mime="text/csv",
                 key="download_image_always"
             )
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(
+        """
+        **🔧 API Keys Required:**
+        
+        **Required (Choose One):**
+        - **Google Gemini:** Visit [Google AI for Developers](https://ai.google.dev/) to get your API key
+        - **OpenAI:** Visit [OpenAI Platform](https://platform.openai.com/) to get your API key
+        
+        **Optional (For Enhanced Validation):**
+        - **SerpAPI:** Visit [serpapi.com](https://serpapi.com/) to get your API key for web image comparison
+        
+        **📝 How to use the .env file:**
+        1. Create a file named `.env` in the root of the project
+        2. Add your API keys like this:
+           ```
+           GEMINI_API_KEY="YOUR_GEMINI_KEY"
+           # OR
+           OPENAI_API_KEY="YOUR_OPENAI_KEY"
+           # Optional for enhanced validation:
+           SERPAPI_API_KEY="YOUR_SERPAPI_KEY"
+           ```
+        
+        **🚀 Enhanced Features:**
+        - **Web Image Comparison:** When SERPAPI_API_KEY is provided, the system will search for product images online and compare them with your uploaded images for more accurate validation
+        - **AI-Powered Validation:** Uses advanced AI models to detect mismatches between SKUs and images
+        - **Background Processing:** Continue using other applications while processing runs in the background
+        """
+    )
 
 if __name__ == "__main__":
     main()

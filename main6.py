@@ -131,7 +131,7 @@ class ProductDescriptionGenerator:
             search_query = sku.replace('_', ' ').replace('-', ' ')
             
             # Use a simple web search approach (you can enhance this with proper search APIs)
-            search_url = f"https://www.google.com/search?q={quote_plus(search_query + ' product')}"
+            search_url = f"https://www.google.com/search?q={quote_plus(search_query + ' product images')}"
             
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'

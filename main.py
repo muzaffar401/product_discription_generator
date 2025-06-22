@@ -167,35 +167,39 @@ class ProductDescriptionGenerator:
 
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
-        Enhanced validation protocol with very lenient matching logic to prevent false mismatches.
+        Smart validation protocol that accurately identifies matches and mismatches.
         """
         try:
             clean_sku = sku.replace('_', ' ').replace('-', ' ').replace('__', ' ')
             
-            # Create a very lenient validation prompt that defaults to MATCH
+            # Create a smart validation prompt
             enhanced_prompt = f"""
-IMAGE-SKU VALIDATION ANALYSIS:
+SMART IMAGE-SKU VALIDATION:
 
-You are an expert product analyst. Analyze if the image matches the SKU with a focus on being VERY LENIENT.
+You are an expert product analyst. Analyze if the image matches the SKU accurately.
 
-**SKU for analysis:** "{sku}"
-**Cleaned SKU words:** "{clean_sku}"
+**SKU:** "{sku}"
+**Cleaned SKU:** "{clean_sku}"
 
-ANALYSIS STEPS:
-1. **SKU Analysis**: Extract key words from "{clean_sku}"
-2. **Image Analysis**: Read text and identify the product in the image
-3. **Matching Logic**: Check if there's ANY reasonable connection
+ANALYSIS INSTRUCTIONS:
+1. Extract key words from the SKU: "{clean_sku}"
+2. Read ALL text visible on the product packaging in the image
+3. Identify the product type and brand in the image
+4. Compare systematically
 
-MATCHING CRITERIA (be VERY lenient):
-- If the image shows ANY food/spice product and SKU contains food-related terms = MATCH
-- If brand names match (e.g., "shan" in both) = MATCH  
-- If product type matches (e.g., "masala", "achar") = MATCH
-- If image is unclear but SKU suggests food = MATCH
-- If image shows packaging/container = LIKELY MATCH
-- Only flag as MISMATCH if CLEARLY wrong (e.g., shoe image for food SKU)
-- When in doubt, default to MATCH
+MATCHING RULES:
+✅ MATCH if:
+- Brand names match (e.g., "shan" in SKU and image)
+- Product types match (e.g., "karahi", "masala", "achar")
+- Product categories match (e.g., both are food/spice products)
+- Weight/size matches (e.g., "50g" in both)
 
-IMPORTANT: Be very conservative about marking as MISMATCH. Only do so if you are 100% certain the image is completely wrong.
+❌ MISMATCH only if:
+- Clearly different product types (e.g., shoe image for food SKU)
+- Completely different brands
+- Obviously wrong categories
+
+BE ACCURATE: Don't guess. If you can't clearly determine, default to MATCH.
 
 Return ONLY this JSON:
 {{
@@ -206,7 +210,7 @@ Return ONLY this JSON:
     "image_text": ["text", "from", "image"],
     "image_category": "what the image shows"
   }},
-  "reason": "Brief explanation of the match decision"
+  "reason": "Clear explanation of your decision"
 }}
 """
             
@@ -218,32 +222,49 @@ Return ONLY this JSON:
                 validation_data = json.loads(clean_response)
                 validation_data['web_search_used'] = False
                 
-                # Additional safety check: if the response is unclear, default to MATCH
+                # Additional safety: if confidence is low and it's a mismatch, double-check
                 if validation_data.get('match') is False and validation_data.get('confidence') == 'low':
-                    print(f"Low confidence mismatch detected, defaulting to MATCH for safety")
-                    validation_data['match'] = True
-                    validation_data['confidence'] = 'low'
-                    validation_data['reason'] = 'Low confidence mismatch overridden for safety'
+                    print(f"Low confidence mismatch detected, doing additional check...")
+                    
+                    # Do a simple keyword check as backup
+                    sku_lower = clean_sku.lower()
+                    image_text = ' '.join(validation_data.get('analysis', {}).get('image_text', [])).lower()
+                    
+                    # Check for obvious matches
+                    if any(word in image_text for word in sku_lower.split()):
+                        print(f"Keyword match found, overriding to MATCH")
+                        validation_data['match'] = True
+                        validation_data['confidence'] = 'medium'
+                        validation_data['reason'] = 'Keyword match found in image text'
                 
                 return validation_data
             except json.JSONDecodeError:
-                # If JSON parsing fails, be conservative and assume it's a match
-                print(f"JSON parsing failed for validation, defaulting to MATCH for safety")
+                # If JSON parsing fails, do a simple keyword check
+                print(f"JSON parsing failed, doing keyword check...")
+                
+                # Simple fallback validation
+                simple_prompt = f"""
+The SKU "{sku}" suggests a product. Does the image show a similar product?
+Answer with ONLY "MATCH" or "MISMATCH".
+"""
+                simple_response = self._make_api_call(simple_prompt, image_bytes=image_bytes, mime_type=mime_type)
+                
+                is_match = "MATCH" in simple_response.upper() if simple_response else True
+                
                 return {
-                    'match': True,
+                    'match': is_match,
                     'confidence': 'low',
                     'analysis': {
                         'sku_keywords': clean_sku.split(),
-                        'image_text': ['unclear'],
-                        'image_category': 'unclear'
+                        'image_text': ['fallback_check'],
+                        'image_category': 'fallback'
                     },
-                    'reason': 'Validation parsing failed, defaulting to accept for safety',
+                    'reason': f'Fallback validation: {simple_response}',
                     'web_search_used': False
                 }
                 
         except Exception as e:
-            print(f"Enhanced validation failed: {str(e)}, defaulting to MATCH")
-            # Default to match if validation fails
+            print(f"Validation failed: {str(e)}, defaulting to MATCH")
             return {
                 'match': True,
                 'confidence': 'low',

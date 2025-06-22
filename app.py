@@ -322,100 +322,73 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         
                         readable_sku = sku.replace('_', ' ').replace('__', ' ')
                         
-                        # PRE-VALIDATION: Check for obvious mismatches in filenames - DISABLED
-                        print(f"⚠️ PRE-VALIDATION DISABLED - Skipping filename checks")
+                        # PRE-VALIDATION: Check for obvious mismatches in filenames
+                        print(f"🔍 Pre-validation check: SKU='{sku}', Image='{image_name}'")
                         
-                        # List of food-related keywords
-                        # food_keywords = ['baisan', 'shan', 'masala', 'achar', 'spice', 'food', 'rice', 'wheat', 'flour', 'sugar', 'salt', 'oil', 'ghee', 'milk', 'bread', 'cake', 'cookie', 'chocolate', 'tea', 'coffee', 'juice', 'soda', 'water', 'milk', 'yogurt', 'cheese', 'meat', 'fish', 'vegetable', 'fruit', 'grain', 'pulse', 'dal', 'lentil', 'bean', 'nut', 'seed']
+                        # List of obvious non-food keywords that would indicate clear mismatch
+                        obvious_non_food_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'clothing', 'shirt', 'pants', 'dress', 'jacket', 'coat', 'hat', 'cap', 'bag', 'purse', 'wallet', 'furniture', 'chair', 'table', 'bed', 'sofa', 'car', 'vehicle', 'bike', 'bicycle', 'toy', 'game', 'book', 'pen', 'paper']
                         
-                        # List of non-food keywords that would indicate mismatch
-                        # non_food_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'clothing', 'shirt', 'pants', 'dress', 'jacket', 'coat', 'hat', 'cap', 'bag', 'purse', 'wallet', 'furniture', 'chair', 'table', 'bed', 'sofa', 'car', 'vehicle', 'bike', 'bicycle', 'toy', 'game', 'book', 'pen', 'paper']
+                        # Check if image name contains obvious non-food keywords (use base name without extension)
+                        excel_name, excel_extension = os.path.splitext(image_name)
+                        image_lower = excel_name.lower() if excel_name else ""
+                        has_obvious_non_food = any(keyword in image_lower for keyword in obvious_non_food_keywords)
                         
-                        # Check if SKU contains food keywords
-                        # sku_lower = sku.lower()
-                        # is_food_sku = any(keyword in sku_lower for keyword in food_keywords)
+                        print(f"Pre-validation: Image base='{excel_name}' (obvious non-food={has_obvious_non_food})")
                         
-                        # Check if image name contains non-food keywords (use base name without extension)
-                        # excel_name, excel_extension = os.path.splitext(image_name)
-                        # image_lower = excel_name.lower() if excel_name else ""
-                        # has_non_food_image = any(keyword in image_lower for keyword in non_food_keywords)
-                        
-                        # print(f"Pre-validation: SKU='{sku}' (food-like={is_food_sku}), Image base='{excel_name}' (non-food-like={has_non_food_image})")
-                        
-                        # If SKU suggests food but image suggests non-food, it's a clear mismatch
-                        # if is_food_sku and has_non_food_image:
-                        #     error_message = f"🚫 CRITICAL MISMATCH: SKU '{sku}' suggests food product but image name '{image_name}' suggests non-food item"
-                        #     print(f"PRE-VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
-                        #     # Set error status immediately
-                        #     status = {
-                        #         'current': processed_count, 'total': total_products,
-                        #         'current_sku': current_item_identifier, 'status': 'error',
-                        #         'error': error_message,
-                        #         'last_updated': datetime.datetime.now().isoformat()
-                        #     }
-                        #     save_status(status)
-                        #     remove_processing_lock()
-                        #     return  # Exit the function immediately
+                        # Only flag as mismatch if image name contains obvious non-food keywords
+                        if has_obvious_non_food:
+                            error_message = f"🚫 OBVIOUS MISMATCH: Image name '{image_name}' contains non-food keywords, suggesting wrong image for food SKU '{sku}'"
+                            print(f"PRE-VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
+                            # Set error status immediately
+                            status = {
+                                'current': processed_count, 'total': total_products,
+                                'current_sku': current_item_identifier, 'status': 'error',
+                                'error': error_message,
+                                'last_updated': datetime.datetime.now().isoformat()
+                            }
+                            save_status(status)
+                            remove_processing_lock()
+                            return  # Exit the function immediately
                         
                         print(f"Pre-validation PASSED - proceeding to AI validation")
                         
-                        # DISABLED VALIDATION - Skip all validation checks
-                        print(f"⚠️ VALIDATION DISABLED - Skipping all validation checks for processing")
-                        is_match = True
-                        validation_data = {
-                            'match': True,
-                            'confidence': 'high',
-                            'reason': 'Validation disabled for processing'
-                        }
+                        # ENABLE SMART VALIDATION
+                        print(f"🔍 Running smart validation for {current_item_identifier}")
+                        validation_data = generator.enhanced_image_validation(sku, image_bytes, mime_type)
+                        print(f"Smart validation result: {validation_data}")
                         
-                        # Enhanced validation with web search - DISABLED
-                        # print(f"Making ENHANCED validation API call for {current_item_identifier}")
-                        # validation_data = generator.enhanced_image_validation(sku, image_bytes, mime_type)
-                        # print(f"Enhanced validation result: {validation_data}")
+                        is_match = validation_data.get("match", False)
+                        confidence = validation_data.get("confidence", "medium")
+                        reason = validation_data.get("reason", "No reason provided")
                         
-                        # is_match = validation_data.get("match", False)
-                        # confidence = validation_data.get("confidence", "medium")
-                        # web_search_used = validation_data.get("web_search_used", False)
+                        print(f"Validation result: match={is_match}, confidence={confidence}")
+                        print(f"Reason: {reason}")
                         
-                        # print(f"AI Validation result: match={is_match}, confidence={confidence}, web_search={web_search_used}")
-                        
-                        # TEMPORARY BYPASS: Force match for testing
-                        # if not is_match:
-                        #     print(f"⚠️ TEMPORARY BYPASS: Forcing match for testing purposes")
-                        #     is_match = True
-                        #     validation_data['match'] = True
-                        #     validation_data['reason'] = 'Temporarily bypassed for testing'
-                        
-                        # if not is_match:
-                        #     sku_type = validation_data.get('sku_type', 'Unknown')
-                        #     image_type = validation_data.get('image_type', 'Unknown')
-                        #     reason = validation_data.get('reason', 'No reason provided')
-                        #     brand_match = validation_data.get('brand_match', 'Unknown')
-                        #     category_match = validation_data.get('product_category_match', 'Unknown')
-                        #     
-                        #     # Create detailed error message
-                        #     error_message = f"🚫 CRITICAL MISMATCH: SKU '{sku}' suggests '{sku_type}' but image shows '{image_type}'. "
-                        #     error_message += f"Brand match: {brand_match}, Category match: {category_match}. "
-                        #     error_message += f"Confidence: {confidence}. "
-                        #     if web_search_used:
-                        #         error_message += f"Web search was used for validation. "
-                        #     error_message += f"Reason: {reason}"
-                        #     
-                        #     print(f"AI VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
-                        #     # Set error status immediately
-                        #     status = {
-                        #         'current': processed_count, 'total': total_products,
-                        #         'current_sku': current_item_identifier, 'status': 'error',
-                        #         'error': error_message,
-                        #         'last_updated': datetime.datetime.now().isoformat()
-                        #     }
-                        #     save_status(status)
-                        #     remove_processing_lock()
-                        #     return  # Exit the function immediately
-                        # else:
-                        #     print(f"AI validation PASSED for {sku} (confidence: {confidence})")
+                        # Smart handling of validation results
+                        if not is_match:
+                            # Only stop if it's a high confidence mismatch
+                            if confidence == "high":
+                                error_message = f"🚫 HIGH CONFIDENCE MISMATCH: SKU '{sku}' does not match the image. Reason: {reason}"
+                                print(f"VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
+                                
+                                # Set error status immediately
+                                status = {
+                                    'current': processed_count, 'total': total_products,
+                                    'current_sku': current_item_identifier, 'status': 'error',
+                                    'error': error_message,
+                                    'last_updated': datetime.datetime.now().isoformat()
+                                }
+                                save_status(status)
+                                remove_processing_lock()
+                                return  # Exit the function immediately
+                            else:
+                                # For low/medium confidence mismatches, continue but log warning
+                                print(f"⚠️ LOW/MEDIUM CONFIDENCE MISMATCH - Continuing with processing: {reason}")
+                                is_match = True  # Override to continue processing
+                        else:
+                            print(f"✅ Validation PASSED for {sku} (confidence: {confidence})")
 
-                        print(f"✅ VALIDATION BYPASSED - Proceeding with processing")
+                        print(f"✅ Proceeding with processing")
 
                         print(f"Making description API call for {current_item_identifier}")
                         result = generator.generate_product_description_with_image(sku, image_name, image_bytes, mime_type)

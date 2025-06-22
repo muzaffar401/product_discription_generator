@@ -268,22 +268,106 @@ class ProductDescriptionGenerator:
         Compares two images using AI (Gemini or OpenAI) to determine if they show the same product.
         """
         try:
-            prompt = f"""You are a product image validation expert. Your task is to compare two images for a product with SKU: '{sku}'.
+            # Determine product category from SKU
+            sku_lower = sku.lower()
+            
+            # Food/Spice categories (strict validation)
+            food_keywords = ['baisan', 'shan', 'masala', 'achar', 'spice', 'food', 'rice', 'wheat', 'flour', 'sugar', 'salt', 'oil', 'ghee', 'milk', 'bread', 'cake', 'cookie', 'chocolate', 'tea', 'coffee', 'juice', 'soda', 'water', 'yogurt', 'cheese', 'meat', 'fish', 'vegetable', 'fruit', 'grain', 'pulse', 'dal', 'lentil', 'bean', 'nut', 'seed', 'powder', 'garam', 'korma', 'nihari', 'karahi', 'seekh', 'kabab', 'chat', 'zafrani']
+            
+            # Electronics/Shoes categories (shape-based validation)
+            shape_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'headphone', 'speaker', 'charger', 'battery']
+            
+            is_food_product = any(keyword in sku_lower for keyword in food_keywords)
+            is_shape_product = any(keyword in sku_lower for keyword in shape_keywords)
+            
+            if is_food_product:
+                # STRICT validation for food/spices - check brand, packaging, exact product
+                prompt = f"""You are a product image validation expert. Your task is to compare two images for a food/spice product with SKU: '{sku}'.
 
 Image 1 is a reference image found on the web.
 Image 2 is an image uploaded by a user.
 
-Your goal is to determine if both images represent the SAME core product, even if there are minor differences.
+This is a FOOD/SPICE product that requires STRICT validation.
+
+STRICT VALIDATION RULES for Food/Spices:
+1. Check if the BRAND names match (e.g., SHAN, BAISAN, NATIONAL)
+2. Check if the PRODUCT TYPE matches (e.g., Garam Masala, Karahi Masala, Nihari Masala)
+3. Check if the PACKAGING looks similar (same brand packaging style)
+4. Check if the PRODUCT NAME on packaging matches
+5. Allow minor differences in packaging design, lighting, angle
+
+Return 'Yes' ONLY if:
+- Same brand name is visible on both images
+- Same product type/category (e.g., both are masala products)
+- Packaging looks like the same brand's style
+- Product names are similar or related
+
+Return 'No' if:
+- Different brands (e.g., SHAN vs BAISAN)
+- Completely different product types (e.g., masala vs flour)
+- No brand information visible or brands don't match
+
+Are these two images of the same brand and product type? Answer with only 'Yes' or 'No'."""
+                
+            elif is_shape_product:
+                # SHAPE-BASED validation for shoes/electronics - only check physical shape/form
+                prompt = f"""You are a product image validation expert. Your task is to compare two images for a product with SKU: '{sku}'.
+
+Image 1 is a reference image found on the web.
+Image 2 is an image uploaded by a user.
+
+This is a SHOE/ELECTRONICS product that requires SHAPE-BASED validation.
+
+SHAPE-BASED VALIDATION RULES for Shoes/Electronics:
+1. Focus ONLY on the PHYSICAL SHAPE and FORM of the products
+2. For shoes: Check if both images show footwear SHAPE (any type - sneakers, boots, sandals, etc.)
+3. For electronics: Check if both images show electronics SHAPE (any type - phones, laptops, cameras, etc.)
+4. IGNORE brand names completely
+5. IGNORE colors, logos, or specific model details
+6. IGNORE packaging or backgrounds
+7. ONLY look at the actual product SHAPE
+
+Return 'Yes' if:
+- Both images show the same SHAPE category (e.g., both are shoe-shaped, both are phone-shaped)
+- The physical form is similar (e.g., both are rectangular phones, both are shoe-shaped footwear)
+- The basic structure matches (e.g., both have shoe soles, both have phone screens)
+
+Return 'No' if:
+- Different SHAPES (e.g., shoe shape vs phone shape)
+- Completely different forms (e.g., round vs rectangular, flat vs 3D)
+- One is clearly not the right category shape
+
+Examples:
+- Any shoe shape + Any shoe shape → Yes (same footwear form)
+- Any phone shape + Any phone shape → Yes (same phone form)
+- Any laptop shape + Any laptop shape → Yes (same laptop form)
+- Shoe shape + Phone shape → No (different shapes)
+
+Are these two images showing products with the same basic SHAPE and FORM? Answer with only 'Yes' or 'No'."""
+                
+            else:
+                # DEFAULT validation for other products
+                prompt = f"""You are a product image validation expert. Your task is to compare two images for a product with SKU: '{sku}'.
+
+Image 1 is a reference image found on the web.
+Image 2 is an image uploaded by a user.
+
+Your goal is to determine if both images represent the SAME core product or similar products in the same category.
 
 BE LENIENT in your comparison. Allow for differences in:
 - Packaging design (e.g., old vs. new packaging)
 - Lighting, angle, or image quality
 - Minor variations (e.g., '50g' vs '50 grams')
 - Backgrounds or settings
+- Brand variations within the same category
+- Color variations of the same product
+- Different models/styles within the same product type
 
-Only return 'No' if the products are clearly DIFFERENT (e.g., different brand, completely different product type like 'masala' vs 'shampoo').
+IMPORTANT: If both images show products in the SAME CATEGORY, return 'Yes'.
 
-Are these two images of the same core product? Answer with only 'Yes' or 'No'."""
+Only return 'No' if the products are clearly DIFFERENT CATEGORIES.
+
+Are these two images of the same core product or same category? Answer with only 'Yes' or 'No'."""
 
             if self.use_openai:
                 # Use OpenAI for image comparison
@@ -406,7 +490,7 @@ Are these two images of the same core product? Answer with only 'Yes' or 'No'.""
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
         Enhanced validation that searches for the product online and compares with user's image
-        Uses lenient validation - only rejects completely opposite images
+        Uses category-specific validation rules
         """
         try:
             # Step 1: Search for product information online
@@ -414,8 +498,127 @@ Are these two images of the same core product? Answer with only 'Yes' or 'No'.""
 
             print(search_result)
             
-            # Step 2: Create lenient validation prompt with web search context
-            enhanced_prompt = f"""
+            # Determine product category from SKU
+            sku_lower = sku.lower()
+            
+            # Food/Spice categories (strict validation)
+            food_keywords = ['baisan', 'shan', 'masala', 'achar', 'spice', 'food', 'rice', 'wheat', 'flour', 'sugar', 'salt', 'oil', 'ghee', 'milk', 'bread', 'cake', 'cookie', 'chocolate', 'tea', 'coffee', 'juice', 'soda', 'water', 'yogurt', 'cheese', 'meat', 'fish', 'vegetable', 'fruit', 'grain', 'pulse', 'dal', 'lentil', 'bean', 'nut', 'seed', 'powder', 'garam', 'korma', 'nihari', 'karahi', 'seekh', 'kabab', 'chat', 'zafrani']
+            
+            # Electronics/Shoes categories (shape-based validation)
+            shape_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'headphone', 'speaker', 'charger', 'battery']
+            
+            is_food_product = any(keyword in sku_lower for keyword in food_keywords)
+            is_shape_product = any(keyword in sku_lower for keyword in shape_keywords)
+            
+            # Step 2: Create category-specific validation prompt with web search context
+            if is_food_product:
+                enhanced_prompt = f"""
+ENHANCED PRODUCT VALIDATION TASK (STRICT for Food/Spices):
+
+You are validating a FOOD/SPICE product listing with SKU: "{sku}"
+
+WEB SEARCH CONTEXT:
+- Search Query: {search_result.get('search_query', sku)}
+- Search Status: {search_result.get('status', 'unknown')}
+- Found Online Results: {search_result.get('found_results', False)}
+
+USER'S IMAGE: [Image will be provided]
+
+STRICT VALIDATION INSTRUCTIONS for Food/Spices:
+1. Analyze the user's image carefully
+2. Check if the BRAND names match (e.g., SHAN, BAISAN, NATIONAL)
+3. Check if the PRODUCT TYPE matches (e.g., Garam Masala, Karahi Masala, Nihari Masala)
+4. Check if the PACKAGING looks similar (same brand packaging style)
+5. Check if the PRODUCT NAME on packaging matches
+6. Use the web search context to understand what this product should look like
+
+STRICT VALIDATION CRITERIA:
+- If the image shows the SAME BRAND and SAME PRODUCT TYPE → MATCH (ALLOW)
+- If the image shows the SAME BRAND but different variant → MATCH (ALLOW)
+- If the image shows similar packaging style and product type → MATCH (ALLOW)
+- If the image shows DIFFERENT BRAND → MISMATCH (REJECT)
+- If the image shows COMPLETELY DIFFERENT product type → MISMATCH (REJECT)
+
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "SHAN_GARAM_MASALA" + Image: SHAN brand masala product → MATCH
+- SKU: "BAISAN_FLOUR" + Image: BAISAN brand flour product → MATCH
+- SKU: "NATIONAL_GARLIC_POWDER" + Image: NATIONAL brand spice product → MATCH
+
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "SHAN_GARAM_MASALA" + Image: BAISAN brand product → MISMATCH (different brand)
+- SKU: "SHAN_GARAM_MASALA" + Image: electronics/shoes → MISMATCH (different category)
+- SKU: "BAISAN_FLOUR" + Image: SHAN brand product → MISMATCH (different brand)
+
+Return ONLY this JSON format:
+{{
+  "match": true/false,
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "brand_match": true/false,
+  "product_category_match": true/false,
+  "confidence": "high/medium/low",
+  "reason": "detailed explanation of the validation decision",
+  "web_search_used": true/false
+}}
+
+Be STRICT for food/spices - check brand names and product types carefully.
+"""
+            elif is_shape_product:
+                enhanced_prompt = f"""
+ENHANCED PRODUCT VALIDATION TASK (SHAPE-BASED for Shoes/Electronics):
+
+You are validating a SHOE/ELECTRONICS product listing with SKU: "{sku}"
+
+WEB SEARCH CONTEXT:
+- Search Query: {search_result.get('search_query', sku)}
+- Search Status: {search_result.get('status', 'unknown')}
+- Found Online Results: {search_result.get('found_results', False)}
+
+USER'S IMAGE: [Image will be provided]
+
+SHAPE-BASED VALIDATION INSTRUCTIONS for Shoes/Electronics:
+1. Focus ONLY on the PHYSICAL SHAPE and FORM of the products
+2. For shoes: Check if the image shows footwear SHAPE (any type - sneakers, boots, sandals, etc.)
+3. For electronics: Check if the image shows electronics SHAPE (any type - phones, laptops, cameras, etc.)
+4. IGNORE brand names completely
+5. IGNORE colors, logos, or specific model details
+6. IGNORE packaging or backgrounds
+7. ONLY look at the actual product SHAPE and FORM
+8. Use the web search context to understand what category this should be
+
+SHAPE-BASED VALIDATION CRITERIA:
+- If the image shows the SAME SHAPE category → MATCH (ALLOW)
+- If the image shows similar physical form → MATCH (ALLOW)
+- If the image shows the right basic structure → MATCH (ALLOW)
+- If the image shows COMPLETELY DIFFERENT shape → MISMATCH (REJECT)
+
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "Men_Black_Sports_Walking_Shoes" + Image: any shoe-shaped footwear → MATCH
+- SKU: "Nike_Sneakers" + Image: any shoe-shaped footwear → MATCH
+- SKU: "iPhone_15" + Image: any phone-shaped device → MATCH
+- SKU: "Samsung_Laptop" + Image: any laptop-shaped device → MATCH
+
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "Men_Black_Sports_Walking_Shoes" + Image: phone-shaped device → MISMATCH
+- SKU: "iPhone_15" + Image: shoe-shaped footwear → MISMATCH
+
+Return ONLY this JSON format:
+{{
+  "match": true/false,
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "brand_match": true/false,
+  "product_category_match": true/false,
+  "confidence": "high/medium/low",
+  "reason": "detailed explanation of the validation decision",
+  "web_search_used": true/false
+}}
+
+Be SHAPE-BASED for shoes/electronics - only check physical form, ignore brands/models.
+"""
+            else:
+                # Default validation for other products
+                enhanced_prompt = f"""
 ENHANCED PRODUCT VALIDATION TASK (LENIENT):
 
 You are validating a product listing with SKU: "{sku}"
@@ -486,11 +689,87 @@ Be LENIENT - only reject if completely opposite categories.
     def simple_image_validation(self, sku, image_bytes, mime_type):
         """
         Simple validation as fallback when enhanced validation fails
-        Uses lenient validation - only rejects completely opposite images
+        Uses category-specific validation rules
         """
         readable_sku = sku.replace('_', ' ').replace('__', ' ')
         
-        simple_prompt = f"""
+        # Determine product category from SKU
+        sku_lower = sku.lower()
+        
+        # Food/Spice categories (strict validation)
+        food_keywords = ['baisan', 'shan', 'masala', 'achar', 'spice', 'food', 'rice', 'wheat', 'flour', 'sugar', 'salt', 'oil', 'ghee', 'milk', 'bread', 'cake', 'cookie', 'chocolate', 'tea', 'coffee', 'juice', 'soda', 'water', 'yogurt', 'cheese', 'meat', 'fish', 'vegetable', 'fruit', 'grain', 'pulse', 'dal', 'lentil', 'bean', 'nut', 'seed', 'powder', 'garam', 'korma', 'nihari', 'karahi', 'seekh', 'kabab', 'chat', 'zafrani']
+        
+        # Electronics/Shoes categories (shape-based validation)
+        shape_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'headphone', 'speaker', 'charger', 'battery']
+        
+        is_food_product = any(keyword in sku_lower for keyword in food_keywords)
+        is_shape_product = any(keyword in sku_lower for keyword in shape_keywords)
+        
+        if is_food_product:
+            simple_prompt = f"""
+SIMPLE PRODUCT VALIDATION TASK (STRICT for Food/Spices): You are validating a FOOD/SPICE product listing. The SKU "{sku}" suggests a product named "{readable_sku}".
+
+STRICT VALIDATION RULES for Food/Spices:
+1. Check if the BRAND names match (e.g., SHAN, BAISAN, NATIONAL)
+2. Check if the PRODUCT TYPE matches (e.g., Garam Masala, Karahi Masala, Nihari Masala)
+3. Check if the PACKAGING looks similar (same brand packaging style)
+4. Check if the PRODUCT NAME on packaging matches
+
+Return 'Yes' ONLY if:
+- Same brand name is visible on both images
+- Same product type/category (e.g., both are masala products)
+- Packaging looks like the same brand's style
+
+Return 'No' if:
+- Different brands (e.g., SHAN vs BAISAN)
+- Completely different product types (e.g., masala vs flour)
+
+Return ONLY this JSON format:
+{{
+  "match": true/false,
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "reason": "why they match or don't match"
+}}
+
+Be STRICT for food/spices - check brand names and product types carefully.
+"""
+        elif is_shape_product:
+            simple_prompt = f"""
+SIMPLE PRODUCT VALIDATION TASK (SHAPE-BASED for Shoes/Electronics): You are validating a SHOE/ELECTRONICS product listing. The SKU "{sku}" suggests a product named "{readable_sku}".
+
+SHAPE-BASED VALIDATION RULES for Shoes/Electronics:
+1. Focus ONLY on the PHYSICAL SHAPE and FORM of the products
+2. For shoes: Check if the image shows footwear SHAPE (any type - sneakers, boots, sandals, etc.)
+3. For electronics: Check if the image shows electronics SHAPE (any type - phones, laptops, cameras, etc.)
+4. IGNORE brand names completely
+5. IGNORE colors, logos, or specific model details
+6. IGNORE packaging or backgrounds
+7. ONLY look at the actual product SHAPE and FORM
+
+Return 'Yes' if:
+- Both images show the same SHAPE category (e.g., both are shoe-shaped, both are phone-shaped)
+- The physical form is similar (e.g., both are rectangular phones, both are shoe-shaped footwear)
+- The basic structure matches (e.g., both have shoe soles, both have phone screens)
+
+Return 'No' if:
+- Different SHAPES (e.g., shoe shape vs phone shape)
+- Completely different forms (e.g., round vs rectangular, flat vs 3D)
+- One is clearly not the right category shape
+
+Return ONLY this JSON format:
+{{
+  "match": true/false,
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "reason": "why they match or don't match"
+}}
+
+Be SHAPE-BASED for shoes/electronics - only check physical form, ignore brands/models.
+"""
+        else:
+            # Default validation for other products
+            simple_prompt = f"""
 LENIENT PRODUCT VALIDATION TASK: You are validating product listings. The SKU "{sku}" suggests a product named "{readable_sku}".
 
 You MUST analyze the image and determine if it matches the SKU.

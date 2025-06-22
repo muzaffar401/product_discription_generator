@@ -226,7 +226,7 @@ def test_validation_logic(generator, test_sku, test_image_file):
     except Exception as e:
         return False, f"Enhanced validation test failed: {str(e)}"
 
-def process_products_in_background(generator, df, image_name_mapping, output_file):
+def process_products_in_background(generator, df, image_name_mapping, output_file, disable_web_comparison=False):
     """
     A single, robust background processing function for all scenarios.
     Handles SKU-only, image-only, and SKU+image cases.
@@ -329,7 +329,11 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         
                         # Enhanced validation with web search
                         print(f"Making ENHANCED validation API call for {current_item_identifier}")
-                        validation_data = generator.enhanced_image_validation_with_web_comparison(sku, image_bytes, mime_type)
+                        if disable_web_comparison:
+                            print(f"Web image comparison disabled, using standard validation")
+                            validation_data = generator.enhanced_image_validation(sku, image_bytes, mime_type)
+                        else:
+                            validation_data = generator.enhanced_image_validation_with_web_comparison(sku, image_bytes, mime_type)
                         print(f"Enhanced validation result: {validation_data}")
                         
                         is_match = validation_data.get("match", False)
@@ -490,7 +494,7 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
         save_status(error_status)
         remove_processing_lock()
 
-def start_background_processing(generator, df, image_name_mapping, output_file):
+def start_background_processing(generator, df, image_name_mapping, output_file, disable_web_comparison=False):
     """Start background processing in a separate thread"""
     global processing_thread
     
@@ -501,7 +505,7 @@ def start_background_processing(generator, df, image_name_mapping, output_file):
     # Start new processing thread
     processing_thread = threading.Thread(
         target=process_products_in_background,
-        args=(generator, df, image_name_mapping, output_file),
+        args=(generator, df, image_name_mapping, output_file, disable_web_comparison),
         daemon=True
     )
     processing_thread.start()
@@ -883,6 +887,23 @@ def main():
             help="Enable detailed logging to help troubleshoot issues"
         )
 
+        # Add option to disable web image comparison
+        disable_web_comparison = st.checkbox(
+            "Disable Web Image Comparison",
+            value=False,
+            help="Disable strict web image comparison to avoid false mismatches. Uses only local AI validation."
+        )
+
+        # Add validation type information
+        st.markdown("""
+            <div class='simple-info'>
+                <b>🔍 Validation Rules:</b><br>
+                • <b>Food/Spices:</b> STRICT validation (checks brand names, product types)<br>
+                • <b>Shoes/Electronics:</b> SHAPE-BASED validation (checks physical form only)<br>
+                • <b>Other products:</b> DEFAULT validation (lenient)
+            </div>
+        """, unsafe_allow_html=True)
+
         scenario_options = [
             "Select your scenario",
             "Only Product SKUs",
@@ -1015,13 +1036,27 @@ def main():
                                             return
                                     
                                     with st.spinner("Testing validation..."):
-                                        is_valid, message = test_validation_logic(generator, test_sku, test_image_file)
-                                        
-                                        if is_valid:
-                                            st.success(f"✅ {message}")
+                                        if disable_web_comparison:
+                                            print(f"Web image comparison disabled for test, using standard validation")
+                                            validation_data = generator.enhanced_image_validation(test_sku, image_bytes, mime_type)
+                                            
+                                            # Handle the validation data directly
+                                            is_match = validation_data.get("match", False)
+                                            confidence = validation_data.get("confidence", "medium")
+                                            reason = validation_data.get("reason", "No reason provided")
+                                            
+                                            if is_match:
+                                                st.success(f"✅ Standard validation passed. Confidence: {confidence}. Reason: {reason}")
+                                            else:
+                                                st.error(f"❌ Standard validation failed. Confidence: {confidence}. Reason: {reason}")
                                         else:
-                                            st.error(f"❌ {message}")
-                                            st.info("This mismatch would stop processing if found during batch processing.")
+                                            is_valid, message = test_validation_logic(generator, test_sku, test_image_file)
+                                            
+                                            if is_valid:
+                                                st.success(f"✅ {message}")
+                                            else:
+                                                st.error(f"❌ {message}")
+                                                st.info("This mismatch would stop processing if found during batch processing.")
                                 except Exception as e:
                                     st.error(f"❌ Test failed: {str(e)}")
                             else:
@@ -1100,7 +1135,7 @@ def main():
                     merged_df['related_products'] = ''
                     
                     # Start background processing
-                    if start_background_processing(generator, merged_df, {}, 'enriched_products.csv'):
+                    if start_background_processing(generator, merged_df, {}, 'enriched_products.csv', disable_web_comparison):
                         st.success("✅ Processing started! You can now switch tabs or close this window - processing will continue in the background.")
                         st.info("🔄 Return to this page to check progress and download results when complete.")
                         if debug_mode:
@@ -1233,7 +1268,7 @@ def main():
                     merged_df['related_products'] = ''
 
                     # Start background processing
-                    if start_background_processing(generator, merged_df, image_name_mapping, 'enriched_products_with_images.csv'):
+                    if start_background_processing(generator, merged_df, image_name_mapping, 'enriched_products_with_images.csv', disable_web_comparison):
                         st.success("✅ Processing started! You can now switch tabs or close this window - processing will continue in the background.")
                         st.info("🔄 Return to this page to check progress and download results when complete.")
                         if debug_mode:

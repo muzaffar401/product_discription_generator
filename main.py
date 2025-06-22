@@ -179,8 +179,13 @@ class ProductDescriptionGenerator:
                 print("SERPAPI_API_KEY not found - skipping web image search")
                 return None
             
+            # Clean the SKU for better search results
+            cleaned_sku = self.clean_sku_for_search(sku)
+            print(f"Original SKU: {sku}")
+            print(f"Cleaned SKU for search: {cleaned_sku}")
+            
             params = {
-                "q": sku,
+                "q": cleaned_sku,
                 "engine": "google_images",
                 "ijn": "0",
                 "api_key": serpapi_key,
@@ -207,14 +212,81 @@ class ProductDescriptionGenerator:
             print(f"Error during web image scraping for SKU '{sku}': {e}")
             return None
 
-    def compare_images_with_ai(self, web_image_data, uploaded_image_data, web_mime_type, uploaded_mime_type):
+    def clean_sku_for_search(self, sku):
+        """
+        Clean SKU for better web search results by removing underscores, numbers, and common abbreviations.
+        """
+        # Convert to lowercase and replace underscores with spaces
+        cleaned = sku.lower().replace('_', ' ').replace('__', ' ')
+        
+        # Clean up size/weight patterns but preserve them
+        # Convert "50_g" to "50g", "100_ml" to "100ml", etc.
+        cleaned = re.sub(r'(\d+)\s*_\s*g\b', r'\1g', cleaned)  # "50_g" -> "50g"
+        cleaned = re.sub(r'(\d+)\s*_\s*ml\b', r'\1ml', cleaned)  # "100_ml" -> "100ml"
+        cleaned = re.sub(r'(\d+)\s*_\s*kg\b', r'\1kg', cleaned)  # "1_kg" -> "1kg"
+        cleaned = re.sub(r'(\d+)\s*_\s*l\b', r'\1l', cleaned)   # "1_l" -> "1l"
+        cleaned = re.sub(r'(\d+)\s*_\s*oz\b', r'\1oz', cleaned)  # "16_oz" -> "16oz"
+        
+        # Also handle patterns without underscores
+        cleaned = re.sub(r'(\d+)\s+g\b', r'\1g', cleaned)  # "50 g" -> "50g"
+        cleaned = re.sub(r'(\d+)\s+ml\b', r'\1ml', cleaned)  # "100 ml" -> "100ml"
+        cleaned = re.sub(r'(\d+)\s+kg\b', r'\1kg', cleaned)  # "1 kg" -> "1kg"
+        cleaned = re.sub(r'(\d+)\s+l\b', r'\1l', cleaned)   # "1 l" -> "1l"
+        cleaned = re.sub(r'(\d+)\s+oz\b', r'\1oz', cleaned)  # "16 oz" -> "16oz"
+        
+        # Remove standalone numbers that are not part of size (like "50" at the end without unit)
+        # But keep numbers that are part of product names or sizes
+        cleaned = re.sub(r'\b(\d+)\b(?!\s*(?:g|ml|kg|l|oz|gram|milliliter|kilogram|liter|ounce))', '', cleaned)
+        
+        # Remove common abbreviations but keep size units
+        abbreviations = {
+            'pcs': 'pieces',
+            'pkt': 'packet',
+            'pkg': 'package',
+            'ct': 'count',
+            'pk': 'pack'
+        }
+        
+        for abbr, full in abbreviations.items():
+            # Replace standalone abbreviations
+            cleaned = re.sub(rf'\b{abbr}\b', full, cleaned)
+        
+        # Clean up extra spaces and normalize
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        
+        # Remove trailing/leading spaces and common words that don't help search
+        remove_words = ['product', 'item', 'pack', 'package', 'bottle', 'can', 'jar']
+        words = cleaned.split()
+        words = [word for word in words if word.lower() not in remove_words]
+        
+        cleaned = ' '.join(words).strip()
+        
+        return cleaned
+
+    def compare_images_with_ai(self, sku, web_image_data, uploaded_image_data, web_mime_type, uploaded_mime_type):
         """
         Compares two images using AI (Gemini or OpenAI) to determine if they show the same product.
         """
         try:
+            prompt = f"""You are a product image validation expert. Your task is to compare two images for a product with SKU: '{sku}'.
+
+Image 1 is a reference image found on the web.
+Image 2 is an image uploaded by a user.
+
+Your goal is to determine if both images represent the SAME core product, even if there are minor differences.
+
+BE LENIENT in your comparison. Allow for differences in:
+- Packaging design (e.g., old vs. new packaging)
+- Lighting, angle, or image quality
+- Minor variations (e.g., '50g' vs '50 grams')
+- Backgrounds or settings
+
+Only return 'No' if the products are clearly DIFFERENT (e.g., different brand, completely different product type like 'masala' vs 'shampoo').
+
+Are these two images of the same core product? Answer with only 'Yes' or 'No'."""
+
             if self.use_openai:
                 # Use OpenAI for image comparison
-                prompt = "Are these two images of the same product? Answer with only 'Yes' or 'No'."
                 
                 # Prepare images for OpenAI
                 web_image_base64 = base64.b64encode(web_image_data).decode('utf-8')
@@ -256,7 +328,7 @@ class ProductDescriptionGenerator:
                 uploaded_image = Image.open(io.BytesIO(uploaded_image_data))
                 
                 response = model.generate_content([
-                    "Are these two images of the same product? Answer with only 'Yes' or 'No'.",
+                    prompt,
                     web_image,
                     uploaded_image,
                 ])
@@ -284,6 +356,7 @@ class ProductDescriptionGenerator:
                 
                 # Step 2: Compare the uploaded image with the web image
                 comparison_result = self.compare_images_with_ai(
+                    sku,
                     web_image_info['data'], 
                     image_bytes, 
                     web_image_info['mime_type'], 

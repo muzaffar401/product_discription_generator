@@ -327,43 +327,6 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         
                         readable_sku = sku.replace('_', ' ').replace('__', ' ')
                         
-                        # PRE-VALIDATION: Check for obvious mismatches in filenames
-                        print(f"Pre-validation check: SKU='{sku}', Image='{image_name}'")
-                        
-                        # List of food-related keywords
-                        food_keywords = ['baisan', 'shan', 'masala', 'achar', 'spice', 'food', 'rice', 'wheat', 'flour', 'sugar', 'salt', 'oil', 'ghee', 'milk', 'bread', 'cake', 'cookie', 'chocolate', 'tea', 'coffee', 'juice', 'soda', 'water', 'milk', 'yogurt', 'cheese', 'meat', 'fish', 'vegetable', 'fruit', 'grain', 'pulse', 'dal', 'lentil', 'bean', 'nut', 'seed']
-                        
-                        # List of non-food keywords that would indicate mismatch
-                        non_food_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'clothing', 'shirt', 'pants', 'dress', 'jacket', 'coat', 'hat', 'cap', 'bag', 'purse', 'wallet', 'furniture', 'chair', 'table', 'bed', 'sofa', 'car', 'vehicle', 'bike', 'bicycle', 'toy', 'game', 'book', 'pen', 'paper']
-                        
-                        # Check if SKU contains food keywords
-                        sku_lower = sku.lower()
-                        is_food_sku = any(keyword in sku_lower for keyword in food_keywords)
-                        
-                        # Check if image name contains non-food keywords (use base name without extension)
-                        excel_name, excel_extension = os.path.splitext(image_name)
-                        image_lower = excel_name.lower() if excel_name else ""
-                        has_non_food_image = any(keyword in image_lower for keyword in non_food_keywords)
-                        
-                        print(f"Pre-validation: SKU='{sku}' (food-like={is_food_sku}), Image base='{excel_name}' (non-food-like={has_non_food_image})")
-                        
-                        # If SKU suggests food but image suggests non-food, it's a clear mismatch
-                        if is_food_sku and has_non_food_image:
-                            error_message = f"🚫 CRITICAL MISMATCH: SKU '{sku}' suggests food product but image name '{image_name}' suggests non-food item"
-                            print(f"PRE-VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
-                            # Set error status immediately
-                            status = {
-                                'current': processed_count, 'total': total_products,
-                                'current_sku': current_item_identifier, 'status': 'error',
-                                'error': error_message,
-                                'last_updated': datetime.datetime.now().isoformat()
-                            }
-                            save_status(status)
-                            remove_processing_lock()
-                            return  # Exit the function immediately
-                        
-                        print(f"Pre-validation PASSED - proceeding to AI validation")
-                        
                         # Enhanced validation with web search
                         print(f"Making ENHANCED validation API call for {current_item_identifier}")
                         validation_data = generator.enhanced_image_validation_with_web_comparison(sku, image_bytes, mime_type)

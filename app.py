@@ -129,39 +129,6 @@ def load_progress(output_file):
         print(f"Error loading progress: {str(e)}")
     return None
 
-def validate_image_extension(image_name_in_excel, uploaded_file):
-    """
-    Validate that the image file extension in Excel matches the actual uploaded file extension.
-    
-    Args:
-        image_name_in_excel (str): The image name from Excel (may or may not include extension)
-        uploaded_file: The uploaded file object from Streamlit
-    
-    Returns:
-        tuple: (is_valid, error_message)
-    """
-    try:
-        # Get the actual file extension from uploaded file
-        actual_extension = os.path.splitext(uploaded_file.name)[1].lower()
-        
-        # Check if Excel image_name has an extension
-        excel_name, excel_extension = os.path.splitext(image_name_in_excel)
-        excel_extension = excel_extension.lower()
-        
-        # If Excel has no extension, that's fine (backward compatibility)
-        if not excel_extension:
-            return True, None
-        
-        # If Excel has extension, it must match the uploaded file
-        if excel_extension != actual_extension:
-            error_msg = f"❌ Extension mismatch for '{image_name_in_excel}': Excel specifies '{excel_extension}' but uploaded file has '{actual_extension}'"
-            return False, error_msg
-        
-        return True, None
-        
-    except Exception as e:
-        return False, f"❌ Error validating extension for '{image_name_in_excel}': {str(e)}"
-
 def test_api_connection(generator):
     """Test API connection with a simple prompt"""
     try:
@@ -276,13 +243,7 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                 if 'image_name' in df.columns and pd.notna(row.get('image_name')) and str(row.get('image_name')).strip():
                     image_name = str(row['image_name'])
                 
-                # Get image file - handle both with and without extensions
-                image_file = None
-                if image_name and image_name_mapping:
-                    # Extract base name (without extension) for lookup
-                    excel_name, excel_extension = os.path.splitext(image_name)
-                    image_file = image_name_mapping.get(excel_name)
-                
+                image_file = image_name_mapping.get(image_name) if image_name and image_name_mapping else None
                 current_item_identifier = sku or image_name or f"row {i+1}"
 
                 print(f"Processing: {current_item_identifier}")
@@ -323,21 +284,27 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         readable_sku = sku.replace('_', ' ').replace('__', ' ')
                         
                         # PRE-VALIDATION: Check for obvious mismatches in filenames
-                        print(f"🔍 Pre-validation check: SKU='{sku}', Image='{image_name}'")
+                        print(f"Pre-validation check: SKU='{sku}', Image='{image_name}'")
                         
-                        # List of obvious non-food keywords that would indicate clear mismatch
-                        obvious_non_food_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'clothing', 'shirt', 'pants', 'dress', 'jacket', 'coat', 'hat', 'cap', 'bag', 'purse', 'wallet', 'furniture', 'chair', 'table', 'bed', 'sofa', 'car', 'vehicle', 'bike', 'bicycle', 'toy', 'game', 'book', 'pen', 'paper']
+                        # List of food-related keywords
+                        food_keywords = ['baisan', 'shan', 'masala', 'achar', 'spice', 'food', 'rice', 'wheat', 'flour', 'sugar', 'salt', 'oil', 'ghee', 'milk', 'bread', 'cake', 'cookie', 'chocolate', 'tea', 'coffee', 'juice', 'soda', 'water', 'milk', 'yogurt', 'cheese', 'meat', 'fish', 'vegetable', 'fruit', 'grain', 'pulse', 'dal', 'lentil', 'bean', 'nut', 'seed']
                         
-                        # Check if image name contains obvious non-food keywords (use base name without extension)
-                        excel_name, excel_extension = os.path.splitext(image_name)
-                        image_lower = excel_name.lower() if excel_name else ""
-                        has_obvious_non_food = any(keyword in image_lower for keyword in obvious_non_food_keywords)
+                        # List of non-food keywords that would indicate mismatch
+                        non_food_keywords = ['shoe', 'shoes', 'footwear', 'boot', 'sandal', 'sneaker', 'phone', 'mobile', 'electronics', 'computer', 'laptop', 'tv', 'television', 'camera', 'watch', 'clock', 'clothing', 'shirt', 'pants', 'dress', 'jacket', 'coat', 'hat', 'cap', 'bag', 'purse', 'wallet', 'furniture', 'chair', 'table', 'bed', 'sofa', 'car', 'vehicle', 'bike', 'bicycle', 'toy', 'game', 'book', 'pen', 'paper']
                         
-                        print(f"Pre-validation: Image base='{excel_name}' (obvious non-food={has_obvious_non_food})")
+                        # Check if SKU contains food keywords
+                        sku_lower = sku.lower()
+                        is_food_sku = any(keyword in sku_lower for keyword in food_keywords)
                         
-                        # Only flag as mismatch if image name contains obvious non-food keywords
-                        if has_obvious_non_food:
-                            error_message = f"🚫 OBVIOUS MISMATCH: Image name '{image_name}' contains non-food keywords, suggesting wrong image for food SKU '{sku}'"
+                        # Check if image name contains non-food keywords
+                        image_lower = image_name.lower() if image_name else ""
+                        has_non_food_image = any(keyword in image_lower for keyword in non_food_keywords)
+                        
+                        print(f"Pre-validation: SKU food-like={is_food_sku}, Image non-food-like={has_non_food_image}")
+                        
+                        # If SKU suggests food but image suggests non-food, it's a clear mismatch
+                        if is_food_sku and has_non_food_image:
+                            error_message = f"🚫 CRITICAL MISMATCH: SKU '{sku}' suggests food product but image name '{image_name}' suggests non-food item"
                             print(f"PRE-VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
                             # Set error status immediately
                             status = {
@@ -350,45 +317,45 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                             remove_processing_lock()
                             return  # Exit the function immediately
                         
-                        print(f"Pre-validation PASSED - proceeding to AI validation")
-                        
-                        # ENABLE SMART VALIDATION
-                        print(f"🔍 Running smart validation for {current_item_identifier}")
+                        # Enhanced validation with web search
+                        print(f"Making ENHANCED validation API call for {current_item_identifier}")
                         validation_data = generator.enhanced_image_validation(sku, image_bytes, mime_type)
-                        print(f"Smart validation result: {validation_data}")
+                        print(f"Enhanced validation result: {validation_data}")
                         
                         is_match = validation_data.get("match", False)
                         confidence = validation_data.get("confidence", "medium")
-                        reason = validation_data.get("reason", "No reason provided")
+                        web_search_used = validation_data.get("web_search_used", False)
                         
-                        print(f"Validation result: match={is_match}, confidence={confidence}")
-                        print(f"Reason: {reason}")
+                        print(f"Validation result: match={is_match}, confidence={confidence}, web_search={web_search_used}")
                         
-                        # Smart handling of validation results - VERY LENIENT
                         if not is_match:
-                            # Only stop if it's a very obvious mismatch with high confidence
-                            if confidence == "high" and "shoe" in reason.lower() or "electronics" in reason.lower() or "clothing" in reason.lower():
-                                error_message = f"🚫 OBVIOUS MISMATCH: SKU '{sku}' does not match the image. Reason: {reason}"
-                                print(f"VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
-                                
-                                # Set error status immediately
-                                status = {
-                                    'current': processed_count, 'total': total_products,
-                                    'current_sku': current_item_identifier, 'status': 'error',
-                                    'error': error_message,
-                                    'last_updated': datetime.datetime.now().isoformat()
-                                }
-                                save_status(status)
-                                remove_processing_lock()
-                                return  # Exit the function immediately
-                            else:
-                                # For all other cases, continue processing
-                                print(f"⚠️ Potential mismatch but continuing - Reason: {reason}")
-                                is_match = True  # Override to continue processing
+                            sku_type = validation_data.get('sku_type', 'Unknown')
+                            image_type = validation_data.get('image_type', 'Unknown')
+                            reason = validation_data.get('reason', 'No reason provided')
+                            brand_match = validation_data.get('brand_match', 'Unknown')
+                            category_match = validation_data.get('product_category_match', 'Unknown')
+                            
+                            # Create detailed error message
+                            error_message = f"🚫 CRITICAL MISMATCH: SKU '{sku}' suggests '{sku_type}' but image shows '{image_type}'. "
+                            error_message += f"Brand match: {brand_match}, Category match: {category_match}. "
+                            error_message += f"Confidence: {confidence}. "
+                            if web_search_used:
+                                error_message += f"Web search was used for validation. "
+                            error_message += f"Reason: {reason}"
+                            
+                            print(f"VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
+                            # Set error status immediately
+                            status = {
+                                'current': processed_count, 'total': total_products,
+                                'current_sku': current_item_identifier, 'status': 'error',
+                                'error': error_message,
+                                'last_updated': datetime.datetime.now().isoformat()
+                            }
+                            save_status(status)
+                            remove_processing_lock()
+                            return  # Exit the function immediately
                         else:
-                            print(f"✅ Validation PASSED for {sku} (confidence: {confidence})")
-
-                        print(f"✅ Proceeding with processing")
+                            print(f"Enhanced validation PASSED for {sku} (confidence: {confidence})")
 
                         print(f"Making description API call for {current_item_identifier}")
                         result = generator.generate_product_description_with_image(sku, image_name, image_bytes, mime_type)
@@ -993,24 +960,6 @@ def main():
                                     generator = ProductDescriptionGenerator(use_openai=use_openai)
                                     test_image_file = image_name_mapping[test_image_name]
                                     
-                                    # Check for extension mismatch in test
-                                    test_image_name_with_ext = None
-                                    if 'image_name' in df.columns:
-                                        # Find the corresponding image_name from Excel
-                                        for _, row in df.iterrows():
-                                            if pd.notna(row.get('image_name')) and str(row.get('image_name')).strip():
-                                                excel_name, excel_ext = os.path.splitext(str(row['image_name']))
-                                                if excel_name == test_image_name:
-                                                    test_image_name_with_ext = str(row['image_name'])
-                                                    break
-                                    
-                                    if test_image_name_with_ext:
-                                        is_ext_valid, ext_error = validate_image_extension(test_image_name_with_ext, test_image_file)
-                                        if not is_ext_valid:
-                                            st.error(f"❌ {ext_error}")
-                                            st.info("⚠️ Extension mismatch detected. This would prevent processing in batch mode.")
-                                            return
-                                    
                                     with st.spinner("Testing validation..."):
                                         is_valid, message = test_validation_logic(generator, test_sku, test_image_file)
                                         
@@ -1119,54 +1068,16 @@ def main():
                 return
             
             # Create a mapping of image names without extensions to actual uploaded files
-            # Also validate extensions if specified in Excel
             image_name_mapping = {}
-            extension_errors = []
-            
             for img in uploaded_images:
                 base_name = os.path.splitext(img.name)[0]
                 image_name_mapping[base_name] = img
-            
-            # Validate extensions for images that have extensions specified in Excel
-            if 'image_name' in df.columns:
-                image_name_set = set(str(x) for x in df['image_name'] if pd.notna(x) and str(x).strip() != '')
-                
-                for image_name in image_name_set:
-                    # Check if this image name has an extension in Excel
-                    excel_name, excel_extension = os.path.splitext(image_name)
-                    if excel_extension:  # If Excel specifies an extension
-                        # Find the corresponding uploaded file
-                        uploaded_file = None
-                        for img in uploaded_images:
-                            if os.path.splitext(img.name)[0] == excel_name:
-                                uploaded_file = img
-                                break
-                        
-                        if uploaded_file:
-                            # Validate the extension
-                            is_valid, error_msg = validate_image_extension(image_name, uploaded_file)
-                            if not is_valid:
-                                extension_errors.append(error_msg)
-            
-            # Show extension validation errors if any
-            if extension_errors:
-                st.markdown("<div class='simple-error'>❌ <b>File Extension Mismatches Found:</b></div>", unsafe_allow_html=True)
-                for error in extension_errors:
-                    st.markdown(f"<div class='simple-error'>{error}</div>", unsafe_allow_html=True)
-                st.markdown("<div class='simple-error'>Please ensure the file extensions in your Excel file match the actual uploaded file extensions.</div>", unsafe_allow_html=True)
-                return
 
-            # Check for missing images - handle both with and without extensions
+            # Only check for missing images for rows where image_name is present and not blank/NaN
             if 'image_name' in df.columns:
                 image_name_set = set(str(x) for x in df['image_name'] if pd.notna(x) and str(x).strip() != '')
                 uploaded_image_bases = set(image_name_mapping.keys())
-                
-                # Check for missing images by comparing base names (without extensions)
-                missing_images = set()
-                for image_name in image_name_set:
-                    excel_name, excel_extension = os.path.splitext(image_name)
-                    if excel_name not in uploaded_image_bases:
-                        missing_images.add(image_name)
+                missing_images = image_name_set - uploaded_image_bases
             else:
                 missing_images = set()
 

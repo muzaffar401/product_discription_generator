@@ -167,185 +167,120 @@ class ProductDescriptionGenerator:
 
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
-        Flexible validation that allows matches based on visual similarities, colors, shapes, and conceptual matches.
+        Enhanced validation that searches for the product online and compares with user's image
+        Uses lenient validation - only rejects completely opposite images
         """
         try:
-            clean_sku = sku.replace('_', ' ').replace('-', ' ').replace('__', ' ')
+            # Step 1: Search for product information online
+            search_result = self.search_product_online(sku)
             
-            # Create a very flexible validation prompt
-            flexible_prompt = f"""
-FLEXIBLE IMAGE-SKU VALIDATION:
+            # Step 2: Create lenient validation prompt with web search context
+            enhanced_prompt = f"""
+ENHANCED PRODUCT VALIDATION TASK (LENIENT):
 
-You are analyzing if an image matches a product SKU. Be VERY FLEXIBLE and allow matches based on:
+You are validating a product listing with SKU: "{sku}"
 
-**SKU:** "{sku}"
-**Cleaned SKU:** "{clean_sku}"
+WEB SEARCH CONTEXT:
+- Search Query: {search_result.get('search_query', sku)}
+- Search Status: {search_result.get('status', 'unknown')}
+- Found Online Results: {search_result.get('found_results', False)}
 
-ALLOW MATCHES IF:
-✅ Same brand (e.g., "shan" in SKU and image)
-✅ Same product type (e.g., "masala", "spice", "food")
-✅ Similar visual appearance (same color, shape, packaging style)
-✅ Same category (both are food/spice products)
-✅ Similar names or concepts
-✅ Same weight/size indicators
-✅ Any reasonable connection between SKU and image
+USER'S IMAGE: [Image will be provided]
 
-ONLY REJECT IF:
-❌ Completely different product types (e.g., shoe for food)
-❌ Obviously wrong categories (electronics for food)
-❌ No visual or conceptual connection at all
+LENIENT VALIDATION INSTRUCTIONS:
+1. Analyze the user's image carefully
+2. Consider the SKU name and what product it should represent
+3. Use the web search context to understand what this product should look like
+4. Be LENIENT - only reject if the image is COMPLETELY OPPOSITE and DIFFERENT
 
-BE VERY LENIENT: If there's ANY reasonable connection, mark as MATCH.
+VALIDATION CRITERIA (LENIENT):
+- If the image shows ANYTHING related to the product → MATCH (ALLOW)
+- If the image shows the same category of product → MATCH (ALLOW)
+- If the image shows similar products → MATCH (ALLOW)
+- If the image shows the right brand but different variant → MATCH (ALLOW)
+- If the image shows packaging or branding related to the product → MATCH (ALLOW)
+- ONLY reject if image shows COMPLETELY DIFFERENT category (e.g., food vs electronics)
 
-Return ONLY this JSON:
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "BAISAN" (food) + Image: any food product → MATCH
+- SKU: "SHAN_MASALA" (spice) + Image: any spice or food item → MATCH
+- SKU: "COCA_COLA" (drink) + Image: any beverage or food → MATCH
+- SKU: "NIKE_SHOES" + Image: any footwear → MATCH
+
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "BAISAN" (food) + Image: electronics/phones → MISMATCH
+- SKU: "SHAN_MASALA" (spice) + Image: clothing/shoes → MISMATCH
+- SKU: "COCA_COLA" (drink) + Image: furniture/cars → MISMATCH
+
+Return ONLY this JSON format:
 {{
   "match": true/false,
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "brand_match": true/false,
+  "product_category_match": true/false,
   "confidence": "high/medium/low",
-  "analysis": {{
-    "sku_keywords": ["extracted", "keywords"],
-    "image_text": ["text", "from", "image"],
-    "image_category": "what the image shows",
-    "visual_similarities": ["color", "shape", "packaging", "style"],
-    "conceptual_matches": ["brand", "type", "category"]
-  }},
-  "reason": "Explanation of why it matches or doesn't match"
+  "reason": "detailed explanation of the validation decision",
+  "web_search_used": true/false
 }}
+
+Be LENIENT - only reject if completely opposite categories.
 """
             
-            # Make the validation call
-            validation_response = self._make_api_call(flexible_prompt, image_bytes=image_bytes, mime_type=mime_type)
+            # Make the enhanced validation call
+            validation_response = self._make_api_call(enhanced_prompt, image_bytes=image_bytes, mime_type=mime_type)
             
             try:
                 clean_response = validation_response.strip().lstrip('```json').rstrip('```').strip()
                 validation_data = json.loads(clean_response)
-                validation_data['web_search_used'] = False
-                
-                # Additional safety: be very conservative about rejecting
-                if validation_data.get('match') is False:
-                    print(f"⚠️ Mismatch detected, doing additional flexible check...")
-                    
-                    # Do a very lenient keyword check
-                    sku_lower = clean_sku.lower()
-                    image_text = ' '.join(validation_data.get('analysis', {}).get('image_text', [])).lower()
-                    
-                    # Check for ANY similarity
-                    sku_words = sku_lower.split()
-                    image_words = image_text.split()
-                    
-                    # If any word from SKU appears in image text, consider it a match
-                    if any(sku_word in image_text for sku_word in sku_words if len(sku_word) > 2):
-                        print(f"Keyword similarity found, overriding to MATCH")
-                        validation_data['match'] = True
-                        validation_data['confidence'] = 'medium'
-                        validation_data['reason'] = 'Keyword similarity found in image text'
-                    else:
-                        # Even if no exact keywords, check for food-related terms
-                        food_terms = ['food', 'spice', 'masala', 'powder', 'mix', 'seasoning', 'herb', 'spice', 'flavor', 'taste', 'cooking', 'kitchen', 'recipe']
-                        if any(term in image_text for term in food_terms) or any(term in sku_lower for term in food_terms):
-                            print(f"Food-related terms found, overriding to MATCH")
-                            validation_data['match'] = True
-                            validation_data['confidence'] = 'low'
-                            validation_data['reason'] = 'Food-related terms found in both SKU and image'
-                
                 return validation_data
             except json.JSONDecodeError:
-                # If JSON parsing fails, do a very simple check
-                print(f"JSON parsing failed, doing simple flexible check...")
-                
-                # Very simple fallback validation
-                simple_prompt = f"""
-The SKU "{sku}" suggests a food/spice product. 
-Does the image show ANY food, spice, or similar product?
-Consider visual similarities, colors, shapes, packaging.
-Answer with ONLY "MATCH" or "MISMATCH".
-"""
-                simple_response = self._make_api_call(simple_prompt, image_bytes=image_bytes, mime_type=mime_type)
-                
-                is_match = "MATCH" in simple_response.upper() if simple_response else True
-                
-                return {
-                    'match': is_match,
-                    'confidence': 'low',
-                    'analysis': {
-                        'sku_keywords': clean_sku.split(),
-                        'image_text': ['fallback_check'],
-                        'image_category': 'fallback',
-                        'visual_similarities': ['unknown'],
-                        'conceptual_matches': ['unknown']
-                    },
-                    'reason': f'Fallback validation: {simple_response}',
-                    'web_search_used': False
-                }
+                # Fallback to simple validation if JSON parsing fails
+                return self.simple_image_validation(sku, image_bytes, mime_type)
                 
         except Exception as e:
-            print(f"Validation failed: {str(e)}, defaulting to MATCH")
-            return {
-                'match': True,
-                'confidence': 'low',
-                'analysis': {
-                    'sku_keywords': clean_sku.split() if 'clean_sku' in locals() else [],
-                    'image_text': ['error'],
-                    'image_category': 'error',
-                    'visual_similarities': ['unknown'],
-                    'conceptual_matches': ['unknown']
-                },
-                'reason': f'Validation error: {str(e)}, defaulting to accept',
-                'web_search_used': False
-            }
+            print(f"Enhanced validation failed: {str(e)}")
+            # Fallback to simple validation
+            return self.simple_image_validation(sku, image_bytes, mime_type)
 
     def simple_image_validation(self, sku, image_bytes, mime_type):
         """
-        Highly detailed, step-by-step fallback validation protocol.
+        Simple validation as fallback when enhanced validation fails
+        Uses lenient validation - only rejects completely opposite images
         """
         readable_sku = sku.replace('_', ' ').replace('__', ' ')
         
         simple_prompt = f"""
-HIGHLY DETAILED IMAGE-SKU VALIDATION PROTOCOL:
+LENIENT PRODUCT VALIDATION TASK: You are validating product listings. The SKU "{sku}" suggests a product named "{readable_sku}".
 
-You are an expert image analyst. Your task is to perform a detailed, step-by-step analysis to determine if the provided image matches the SKU. Follow this protocol precisely.
+You MUST analyze the image and determine if it matches the SKU.
 
-**SKU for analysis:** "{sku}"
-**Cleaned SKU words for analysis:** "{readable_sku}"
+LENIENT RULES:
+1. Be GENEROUS - only reject if the image shows COMPLETELY DIFFERENT category
+2. If the image shows ANYTHING related to the product → MATCH (ALLOW)
+3. If the image shows similar products → MATCH (ALLOW)
+4. If the image shows the same category → MATCH (ALLOW)
+5. ONLY reject if image shows COMPLETELY OPPOSITE category
 
----
-**STEP 1: Deconstruct the SKU**
-Break down the cleaned SKU "{readable_sku}" into a list of individual keywords.
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "BAISAN" (food) + Image: any food product → MATCH
+- SKU: "SHAN_MASALA" (spice) + Image: any spice or food → MATCH
+- SKU: "COCA_COLA" (drink) + Image: any beverage → MATCH
 
-**STEP 2: Analyze Text Content from the Image**
-Carefully read ALL text visible on the product packaging in the image. List all significant words you can identify.
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "BAISAN" (food) + Image: electronics/phones → MISMATCH
+- SKU: "SHAN_MASALA" (spice) + Image: clothing/shoes → MISMATCH
+- SKU: "COCA_COLA" (drink) + Image: furniture/cars → MISMATCH
 
-**STEP 3: Analyze Visual Content of the Image**
-Describe the object in the image. What is it? What is its category?
-
-**STEP 4: Compare and Decide (The Matching Logic)**
-Based *only* on your analysis from Steps 1, 2, and 3, answer the following.
-
-*   **Brand Match Check:** Do any brand-related keywords from the SKU (Step 1) appear in the text from the image (Step 2)? (e.g., 'shan', 'national')
-*   **Product Name Match Check:** Do any product name keywords from the SKU (Step 1) appear in the text from the image (Step 2)? (e.g., 'karahi', 'baisan')
-*   **Category Match Check:** Is the visual category from Step 3 consistent with the SKU from Step 1?
-
-**FINAL CONCLUSION:**
-If you answered YES to AT LEAST ONE of the checks in Step 4, the final result is a MATCH. Otherwise, it is a MISMATCH.
-
----
-**STEP 5: Generate Final JSON Output**
-Now, provide your final answer in a single, raw JSON object. Do not add any text before or after the JSON. The JSON must contain your step-by-step analysis.
-
-Return ONLY this JSON:
+Return ONLY this JSON format:
 {{
   "match": true/false,
-  "analysis": {{
-    "sku_keywords": ["list", "of", "keywords", "from", "step1"],
-    "image_text": ["list", "of", "words", "from", "step2"],
-    "image_category": "description from step3"
-  }},
-  "decision_logic": {{
-    "brand_match": "YES/NO. Reason...",
-    "name_match": "YES/NO. Reason...",
-    "category_match": "YES/NO. Reason..."
-  }},
-  "reason": "Final summary of your decision based on the matching logic."
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "reason": "why they match or don't match"
 }}
+
+Be LENIENT - only reject if completely opposite categories.
 """
         
         validation_response = self._make_api_call(simple_prompt, image_bytes=image_bytes, mime_type=mime_type)
@@ -358,18 +293,10 @@ Return ONLY this JSON:
             return validation_data
         except json.JSONDecodeError:
             return {
-                'match': True,  # Default to accept if validation fails
-                'analysis': {
-                    'sku_keywords': [],
-                    'image_text': [],
-                    'image_category': 'Unknown'
-                },
-                'decision_logic': {
-                    'brand_match': 'unknown',
-                    'name_match': 'unknown',
-                    'category_match': 'unknown'
-                },
-                'reason': 'Validation parsing failed, defaulting to accept',
+                'match': True,  # Default to match if validation fails
+                'sku_type': 'Unknown',
+                'image_type': 'Unknown',
+                'reason': 'Validation parsing failed, defaulting to match',
                 'web_search_used': False,
                 'confidence': 'low'
             }

@@ -1281,35 +1281,5 @@ def main():
                 key="download_image_always"
             )
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown(
-        """
-        **🔧 API Keys Required:**
-        
-        **Required (Choose One):**
-        - **Google Gemini:** Visit [Google AI for Developers](https://ai.google.dev/) to get your API key
-        - **OpenAI:** Visit [OpenAI Platform](https://platform.openai.com/) to get your API key
-        
-        **Optional (For Enhanced Validation):**
-        - **SerpAPI:** Visit [serpapi.com](https://serpapi.com/) to get your API key for web image comparison
-        
-        **📝 How to use the .env file:**
-        1. Create a file named `.env` in the root of the project
-        2. Add your API keys like this:
-           ```
-           GEMINI_API_KEY="YOUR_GEMINI_KEY"
-           # OR
-           OPENAI_API_KEY="YOUR_OPENAI_KEY"
-           # Optional for enhanced validation:
-           SERPAPI_API_KEY="YOUR_SERPAPI_KEY"
-           ```
-        
-        **🚀 Enhanced Features:**
-        - **Web Image Comparison:** When SERPAPI_API_KEY is provided, the system will search for product images online and compare them with your uploaded images for more accurate validation
-        - **AI-Powered Validation:** Uses advanced AI models to detect mismatches between SKUs and images
-        - **Background Processing:** Continue using other applications while processing runs in the background
-        """
-    )
-
 if __name__ == "__main__":
     main()

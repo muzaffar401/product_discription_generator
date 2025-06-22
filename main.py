@@ -167,39 +167,35 @@ class ProductDescriptionGenerator:
 
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
-        Smart validation protocol that accurately identifies matches and mismatches.
+        Flexible validation that allows matches based on visual similarities, colors, shapes, and conceptual matches.
         """
         try:
             clean_sku = sku.replace('_', ' ').replace('-', ' ').replace('__', ' ')
             
-            # Create a smart validation prompt
-            enhanced_prompt = f"""
-SMART IMAGE-SKU VALIDATION:
+            # Create a very flexible validation prompt
+            flexible_prompt = f"""
+FLEXIBLE IMAGE-SKU VALIDATION:
 
-You are an expert product analyst. Analyze if the image matches the SKU accurately.
+You are analyzing if an image matches a product SKU. Be VERY FLEXIBLE and allow matches based on:
 
 **SKU:** "{sku}"
 **Cleaned SKU:** "{clean_sku}"
 
-ANALYSIS INSTRUCTIONS:
-1. Extract key words from the SKU: "{clean_sku}"
-2. Read ALL text visible on the product packaging in the image
-3. Identify the product type and brand in the image
-4. Compare systematically
+ALLOW MATCHES IF:
+✅ Same brand (e.g., "shan" in SKU and image)
+✅ Same product type (e.g., "masala", "spice", "food")
+✅ Similar visual appearance (same color, shape, packaging style)
+✅ Same category (both are food/spice products)
+✅ Similar names or concepts
+✅ Same weight/size indicators
+✅ Any reasonable connection between SKU and image
 
-MATCHING RULES:
-✅ MATCH if:
-- Brand names match (e.g., "shan" in SKU and image)
-- Product types match (e.g., "karahi", "masala", "achar")
-- Product categories match (e.g., both are food/spice products)
-- Weight/size matches (e.g., "50g" in both)
+ONLY REJECT IF:
+❌ Completely different product types (e.g., shoe for food)
+❌ Obviously wrong categories (electronics for food)
+❌ No visual or conceptual connection at all
 
-❌ MISMATCH only if:
-- Clearly different product types (e.g., shoe image for food SKU)
-- Completely different brands
-- Obviously wrong categories
-
-BE ACCURATE: Don't guess. If you can't clearly determine, default to MATCH.
+BE VERY LENIENT: If there's ANY reasonable connection, mark as MATCH.
 
 Return ONLY this JSON:
 {{
@@ -208,43 +204,59 @@ Return ONLY this JSON:
   "analysis": {{
     "sku_keywords": ["extracted", "keywords"],
     "image_text": ["text", "from", "image"],
-    "image_category": "what the image shows"
+    "image_category": "what the image shows",
+    "visual_similarities": ["color", "shape", "packaging", "style"],
+    "conceptual_matches": ["brand", "type", "category"]
   }},
-  "reason": "Clear explanation of your decision"
+  "reason": "Explanation of why it matches or doesn't match"
 }}
 """
             
             # Make the validation call
-            validation_response = self._make_api_call(enhanced_prompt, image_bytes=image_bytes, mime_type=mime_type)
+            validation_response = self._make_api_call(flexible_prompt, image_bytes=image_bytes, mime_type=mime_type)
             
             try:
                 clean_response = validation_response.strip().lstrip('```json').rstrip('```').strip()
                 validation_data = json.loads(clean_response)
                 validation_data['web_search_used'] = False
                 
-                # Additional safety: if confidence is low and it's a mismatch, double-check
-                if validation_data.get('match') is False and validation_data.get('confidence') == 'low':
-                    print(f"Low confidence mismatch detected, doing additional check...")
+                # Additional safety: be very conservative about rejecting
+                if validation_data.get('match') is False:
+                    print(f"⚠️ Mismatch detected, doing additional flexible check...")
                     
-                    # Do a simple keyword check as backup
+                    # Do a very lenient keyword check
                     sku_lower = clean_sku.lower()
                     image_text = ' '.join(validation_data.get('analysis', {}).get('image_text', [])).lower()
                     
-                    # Check for obvious matches
-                    if any(word in image_text for word in sku_lower.split()):
-                        print(f"Keyword match found, overriding to MATCH")
+                    # Check for ANY similarity
+                    sku_words = sku_lower.split()
+                    image_words = image_text.split()
+                    
+                    # If any word from SKU appears in image text, consider it a match
+                    if any(sku_word in image_text for sku_word in sku_words if len(sku_word) > 2):
+                        print(f"Keyword similarity found, overriding to MATCH")
                         validation_data['match'] = True
                         validation_data['confidence'] = 'medium'
-                        validation_data['reason'] = 'Keyword match found in image text'
+                        validation_data['reason'] = 'Keyword similarity found in image text'
+                    else:
+                        # Even if no exact keywords, check for food-related terms
+                        food_terms = ['food', 'spice', 'masala', 'powder', 'mix', 'seasoning', 'herb', 'spice', 'flavor', 'taste', 'cooking', 'kitchen', 'recipe']
+                        if any(term in image_text for term in food_terms) or any(term in sku_lower for term in food_terms):
+                            print(f"Food-related terms found, overriding to MATCH")
+                            validation_data['match'] = True
+                            validation_data['confidence'] = 'low'
+                            validation_data['reason'] = 'Food-related terms found in both SKU and image'
                 
                 return validation_data
             except json.JSONDecodeError:
-                # If JSON parsing fails, do a simple keyword check
-                print(f"JSON parsing failed, doing keyword check...")
+                # If JSON parsing fails, do a very simple check
+                print(f"JSON parsing failed, doing simple flexible check...")
                 
-                # Simple fallback validation
+                # Very simple fallback validation
                 simple_prompt = f"""
-The SKU "{sku}" suggests a product. Does the image show a similar product?
+The SKU "{sku}" suggests a food/spice product. 
+Does the image show ANY food, spice, or similar product?
+Consider visual similarities, colors, shapes, packaging.
 Answer with ONLY "MATCH" or "MISMATCH".
 """
                 simple_response = self._make_api_call(simple_prompt, image_bytes=image_bytes, mime_type=mime_type)
@@ -257,7 +269,9 @@ Answer with ONLY "MATCH" or "MISMATCH".
                     'analysis': {
                         'sku_keywords': clean_sku.split(),
                         'image_text': ['fallback_check'],
-                        'image_category': 'fallback'
+                        'image_category': 'fallback',
+                        'visual_similarities': ['unknown'],
+                        'conceptual_matches': ['unknown']
                     },
                     'reason': f'Fallback validation: {simple_response}',
                     'web_search_used': False
@@ -271,7 +285,9 @@ Answer with ONLY "MATCH" or "MISMATCH".
                 'analysis': {
                     'sku_keywords': clean_sku.split() if 'clean_sku' in locals() else [],
                     'image_text': ['error'],
-                    'image_category': 'error'
+                    'image_category': 'error',
+                    'visual_similarities': ['unknown'],
+                    'conceptual_matches': ['unknown']
                 },
                 'reason': f'Validation error: {str(e)}, defaulting to accept',
                 'web_search_used': False

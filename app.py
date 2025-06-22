@@ -364,11 +364,11 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                         print(f"Validation result: match={is_match}, confidence={confidence}")
                         print(f"Reason: {reason}")
                         
-                        # Smart handling of validation results
+                        # Smart handling of validation results - VERY LENIENT
                         if not is_match:
-                            # Only stop if it's a high confidence mismatch
-                            if confidence == "high":
-                                error_message = f"🚫 HIGH CONFIDENCE MISMATCH: SKU '{sku}' does not match the image. Reason: {reason}"
+                            # Only stop if it's a very obvious mismatch with high confidence
+                            if confidence == "high" and "shoe" in reason.lower() or "electronics" in reason.lower() or "clothing" in reason.lower():
+                                error_message = f"🚫 OBVIOUS MISMATCH: SKU '{sku}' does not match the image. Reason: {reason}"
                                 print(f"VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
                                 
                                 # Set error status immediately
@@ -382,8 +382,8 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                                 remove_processing_lock()
                                 return  # Exit the function immediately
                             else:
-                                # For low/medium confidence mismatches, continue but log warning
-                                print(f"⚠️ LOW/MEDIUM CONFIDENCE MISMATCH - Continuing with processing: {reason}")
+                                # For all other cases, continue processing
+                                print(f"⚠️ Potential mismatch but continuing - Reason: {reason}")
                                 is_match = True  # Override to continue processing
                         else:
                             print(f"✅ Validation PASSED for {sku} (confidence: {confidence})")

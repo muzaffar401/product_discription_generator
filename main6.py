@@ -167,85 +167,72 @@ class ProductDescriptionGenerator:
 
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
-        Strict visual validation that compares uploaded image with web images
-        Analyzes shape, color, and visual similarity with online product images
+        Enhanced validation that searches for the product online and compares with user's image
+        Uses lenient validation - only rejects completely opposite images
         """
         try:
-            # Step 1: Search for product information and images online
+            # Step 1: Search for product information online
             search_result = self.search_product_online(sku)
-            clean_sku = sku.replace('_', ' ').replace('-', ' ').replace('__', ' ')
             
-            # Step 2: Create strict visual validation prompt with web comparison
+            # Step 2: Create lenient validation prompt with web search context
             enhanced_prompt = f"""
-STRICT VISUAL VALIDATION WITH WEB COMPARISON:
+ENHANCED PRODUCT VALIDATION TASK (LENIENT):
 
-You are performing a STRICT visual analysis to determine if the uploaded image matches the product SKU.
+You are validating a product listing with SKU: "{sku}"
 
-SKU: "{sku}" (clean: "{clean_sku}")
-WEB SEARCH CONTEXT: {search_result.get('search_query', sku)}
+WEB SEARCH CONTEXT:
+- Search Query: {search_result.get('search_query', sku)}
+- Search Status: {search_result.get('status', 'unknown')}
+- Found Online Results: {search_result.get('found_results', False)}
+
 USER'S IMAGE: [Image will be provided]
 
-VALIDATION PROCESS:
-1. Analyze the user's uploaded image for:
-   - Product shape and packaging design
-   - Color scheme and brand colors
-   - Text/labeling on packaging
-   - Overall visual appearance
-   - Product category and type
+LENIENT VALIDATION INSTRUCTIONS:
+1. Analyze the user's image carefully
+2. Consider the SKU name and what product it should represent
+3. Use the web search context to understand what this product should look like
+4. Be LENIENT - only reject if the image is COMPLETELY OPPOSITE and DIFFERENT
 
-2. Compare with what the SKU "{clean_sku}" should represent:
-   - Expected product type (spice, food, ingredient, etc.)
-   - Typical packaging style for this product
-   - Common brand colors and design elements
-   - Expected visual characteristics
+VALIDATION CRITERIA (LENIENT):
+- If the image shows ANYTHING related to the product → MATCH (ALLOW)
+- If the image shows the same category of product → MATCH (ALLOW)
+- If the image shows similar products → MATCH (ALLOW)
+- If the image shows the right brand but different variant → MATCH (ALLOW)
+- If the image shows packaging or branding related to the product → MATCH (ALLOW)
+- ONLY reject if image shows COMPLETELY DIFFERENT category (e.g., food vs electronics)
 
-3. Perform STRICT visual matching:
-   - Does the image show the correct product category?
-   - Does the packaging shape/style match expectations?
-   - Do the colors match typical brand/product colors?
-   - Is the overall visual appearance consistent with the SKU?
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "BAISAN" (food) + Image: any food product → MATCH
+- SKU: "SHAN_MASALA" (spice) + Image: any spice or food item → MATCH
+- SKU: "COCA_COLA" (drink) + Image: any beverage or food → MATCH
+- SKU: "NIKE_SHOES" + Image: any footwear → MATCH
 
-ACCEPTANCE CRITERIA (STRICT):
-- Image must show the correct product category
-- Visual elements must be consistent with SKU expectations
-- Colors and packaging should match typical product appearance
-- Overall visual similarity to expected product
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "BAISAN" (food) + Image: electronics/phones → MISMATCH
+- SKU: "SHAN_MASALA" (spice) + Image: clothing/shoes → MISMATCH
+- SKU: "COCA_COLA" (drink) + Image: furniture/cars → MISMATCH
 
-REJECTION CRITERIA (STRICT):
-- Wrong product category
-- Inconsistent visual elements
-- Mismatched colors or packaging
-- Completely different product type
-- Non-product images (people, landscapes, etc.)
-- Blank or corrupted images
-
-EXAMPLES:
-- SKU: "SHAN_MASALA" + Image: spice product with typical Shan packaging → ACCEPT
-- SKU: "BAISAN" + Image: food product with consistent branding → ACCEPT
-- SKU: "SHAN_MASALA" + Image: electronics or furniture → REJECT
-- SKU: "BAISAN" + Image: completely different food category → REJECT
-
-Return ONLY this JSON:
+Return ONLY this JSON format:
 {{
   "match": true/false,
-  "sku_type": "detailed description of what SKU suggests",
-  "image_type": "detailed description of what image shows",
-  "visual_analysis": "analysis of shape, color, and visual elements",
-  "similarity_score": "high/medium/low based on visual matching",
-  "reason": "detailed explanation of decision",
-  "confidence": "high/medium/low"
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "brand_match": true/false,
+  "product_category_match": true/false,
+  "confidence": "high/medium/low",
+  "reason": "detailed explanation of the validation decision",
+  "web_search_used": true/false
 }}
 
-Perform STRICT visual analysis - only accept if image truly matches the product.
+Be LENIENT - only reject if completely opposite categories.
 """
             
-            # Make the validation call
+            # Make the enhanced validation call
             validation_response = self._make_api_call(enhanced_prompt, image_bytes=image_bytes, mime_type=mime_type)
             
             try:
                 clean_response = validation_response.strip().lstrip('```json').rstrip('```').strip()
                 validation_data = json.loads(clean_response)
-                validation_data['web_search_used'] = True
                 return validation_data
             except json.JSONDecodeError:
                 # Fallback to simple validation if JSON parsing fails
@@ -258,63 +245,42 @@ Perform STRICT visual analysis - only accept if image truly matches the product.
 
     def simple_image_validation(self, sku, image_bytes, mime_type):
         """
-        Strict validation as fallback when enhanced validation fails
-        Analyzes visual elements and compares with expected product characteristics
+        Simple validation as fallback when enhanced validation fails
+        Uses lenient validation - only rejects completely opposite images
         """
         readable_sku = sku.replace('_', ' ').replace('__', ' ')
         
         simple_prompt = f"""
-STRICT IMAGE VALIDATION:
+LENIENT PRODUCT VALIDATION TASK: You are validating product listings. The SKU "{sku}" suggests a product named "{readable_sku}".
 
-You are performing a STRICT visual analysis to validate if the uploaded image matches the product SKU.
+You MUST analyze the image and determine if it matches the SKU.
 
-SKU: "{sku}" (suggests: {readable_sku})
-Image: [Image will be provided]
+LENIENT RULES:
+1. Be GENEROUS - only reject if the image shows COMPLETELY DIFFERENT category
+2. If the image shows ANYTHING related to the product → MATCH (ALLOW)
+3. If the image shows similar products → MATCH (ALLOW)
+4. If the image shows the same category → MATCH (ALLOW)
+5. ONLY reject if image shows COMPLETELY OPPOSITE category
 
-VISUAL ANALYSIS PROCESS:
-1. Examine the uploaded image for:
-   - Product packaging and design
-   - Color scheme and branding
-   - Product type and category
-   - Visual characteristics and appearance
+EXAMPLES OF WHAT TO ALLOW:
+- SKU: "BAISAN" (food) + Image: any food product → MATCH
+- SKU: "SHAN_MASALA" (spice) + Image: any spice or food → MATCH
+- SKU: "COCA_COLA" (drink) + Image: any beverage → MATCH
 
-2. Compare with SKU expectations:
-   - What product type should "{readable_sku}" represent?
-   - What visual elements are expected?
-   - What colors and packaging style are typical?
+EXAMPLES OF WHAT TO REJECT:
+- SKU: "BAISAN" (food) + Image: electronics/phones → MISMATCH
+- SKU: "SHAN_MASALA" (spice) + Image: clothing/shoes → MISMATCH
+- SKU: "COCA_COLA" (drink) + Image: furniture/cars → MISMATCH
 
-3. Perform strict visual matching:
-   - Does the image show the expected product category?
-   - Are the visual elements consistent with the SKU?
-   - Do colors and design match expectations?
-   - Is there visual similarity to the expected product?
-
-ACCEPTANCE CRITERIA (STRICT):
-- Correct product category
-- Consistent visual elements
-- Matching colors and packaging
-- Overall visual similarity to expected product
-
-REJECTION CRITERIA (STRICT):
-- Wrong product category
-- Inconsistent visual elements
-- Mismatched colors or packaging
-- Completely different product type
-- Non-product images
-- Blank or corrupted images
-
-Return ONLY this JSON:
+Return ONLY this JSON format:
 {{
   "match": true/false,
-  "sku_type": "detailed description of what SKU suggests",
-  "image_type": "detailed description of what image shows",
-  "visual_analysis": "analysis of visual elements and comparison",
-  "similarity_score": "high/medium/low based on visual matching",
-  "reason": "detailed explanation of decision",
-  "confidence": "high/medium/low"
+  "sku_type": "what the SKU suggests",
+  "image_type": "what the image shows",
+  "reason": "why they match or don't match"
 }}
 
-Perform STRICT visual analysis - only accept if image truly matches the product.
+Be LENIENT - only reject if completely opposite categories.
 """
         
         validation_response = self._make_api_call(simple_prompt, image_bytes=image_bytes, mime_type=mime_type)
@@ -327,12 +293,10 @@ Perform STRICT visual analysis - only accept if image truly matches the product.
             return validation_data
         except json.JSONDecodeError:
             return {
-                'match': False,  # Default to reject if validation fails (strict approach)
+                'match': True,  # Default to match if validation fails
                 'sku_type': 'Unknown',
                 'image_type': 'Unknown',
-                'visual_analysis': 'Validation parsing failed',
-                'similarity_score': 'low',
-                'reason': 'Validation parsing failed, defaulting to reject',
+                'reason': 'Validation parsing failed, defaulting to match',
                 'web_search_used': False,
                 'confidence': 'low'
             }

@@ -167,57 +167,75 @@ class ProductDescriptionGenerator:
 
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
-        Direct and robust visual validation based on a simple checklist.
-        Accepts if any direct evidence (brand, name, category) matches.
+        Highly detailed, step-by-step validation protocol to ensure accuracy.
+        Forces the model to deconstruct the SKU and image before comparing.
         """
         try:
             clean_sku = sku.replace('_', ' ').replace('-', ' ').replace('__', ' ')
             
-            # Create a direct, checklist-based validation prompt
+            # Create a highly detailed, step-by-step validation prompt
             enhanced_prompt = f"""
-DIRECT IMAGE VALIDATION CHECKLIST:
+HIGHLY DETAILED IMAGE-SKU VALIDATION PROTOCOL:
 
-You are validating an image against SKU: "{sku}" (which suggests: "{clean_sku}").
-Your task is to check for ANY direct evidence linking the image to the SKU.
+You are an expert image analyst. Your task is to perform a detailed, step-by-step analysis to determine if the provided image matches the SKU. Follow this protocol precisely.
 
-**Answer YES or NO to each question in this checklist:**
+**SKU for analysis:** "{sku}"
+**Cleaned SKU words for analysis:** "{clean_sku}"
 
-1.  **Brand Match:** Does the image contain any brand name (e.g., "Shan", "National") that is present in the SKU "{clean_sku}"?
-    - Analyze text on the packaging.
-    - Answer: YES/NO
+---
+**STEP 1: Deconstruct the SKU**
+Break down the cleaned SKU "{clean_sku}" into a list of individual keywords.
 
-2.  **Product Name Match:** Does the image contain a product name (e.g., "Karahi", "Baisan", "Spice") that is present in the SKU "{clean_sku}"?
-    - Analyze text on the packaging.
-    - Answer: YES/NO
+**STEP 2: Analyze Text Content from the Image**
+Carefully read ALL text visible on the product packaging in the image. List all significant words you can identify.
 
-3.  **Category Match:** Is the image in the same general product category (e.g., food, spice, masala, recipe mix, packaged good) as suggested by the SKU "{clean_sku}"?
-    - Analyze the image content.
-    - Answer: YES/NO
+**STEP 3: Analyze Visual Content of the Image**
+Describe the object in the image. What is it? What is its category?
 
-**FINAL DECISION:**
-- If ANY of the answers above is "YES" → The image is a MATCH.
-- If ALL of the answers are "NO" → The image is a MISMATCH.
+**STEP 4: Compare and Decide (The Matching Logic)**
+Based *only* on your analysis from Steps 1, 2, and 3, answer the following.
+
+*   **Brand Match Check:** Do any brand-related keywords from the SKU (Step 1) appear in the text from the image (Step 2)? (e.g., 'shan', 'national')
+*   **Product Name Match Check:** Do any product name keywords from the SKU (Step 1) appear in the text from the image (Step 2)? (e.g., 'karahi', 'baisan')
+*   **Category Match Check:** Is the visual category from Step 3 consistent with the SKU from Step 1?
+
+**FINAL CONCLUSION:**
+If you answered YES to AT LEAST ONE of the checks in Step 4, the final result is a MATCH. Otherwise, it is a MISMATCH.
+
+---
+**STEP 5: Generate Final JSON Output**
+Now, provide your final answer in a single, raw JSON object. Do not add any text before or after the JSON. The JSON must contain your step-by-step analysis.
 
 Return ONLY this JSON:
 {{
   "match": true/false,
-  "checklist": {{
-    "brand_match": "YES/NO",
-    "name_match": "YES/NO",
-    "category_match": "YES/NO"
+  "analysis": {{
+    "sku_keywords": ["list", "of", "keywords", "from", "step1"],
+    "image_text": ["list", "of", "words", "from", "step2"],
+    "image_category": "description from step3"
   }},
-  "reason": "Explain your decision based on the checklist answers."
+  "decision_logic": {{
+    "brand_match": "YES/NO. Reason...",
+    "name_match": "YES/NO. Reason...",
+    "category_match": "YES/NO. Reason..."
+  }},
+  "reason": "Final summary of your decision based on the matching logic."
 }}
 
-Example for SKU 'SHAN_KARAHI_MIX' and the provided image:
+Example for SKU 'SHAN_KARAHI_MIX':
 {{
   "match": true,
-  "checklist": {{
-    "brand_match": "YES",
-    "name_match": "YES",
-    "category_match": "YES"
+  "analysis": {{
+    "sku_keywords": ["shan", "karahi", "mix"],
+    "image_text": ["shan", "recipe", "masala", "mix", "karahi"],
+    "image_category": "A box of Shan Karahi recipe and masala mix, a food product."
   }},
-  "reason": "The image contains the brand 'Shan' and the name 'Karahi', both present in the SKU. The category is also a match (masala mix)."
+  "decision_logic": {{
+    "brand_match": "YES. The SKU keyword 'shan' is found in the image text.",
+    "name_match": "YES. The SKU keyword 'karahi' is found in the image text.",
+    "category_match": "YES. The SKU suggests a recipe mix, and the image shows a recipe mix."
+  }},
+  "reason": "The image is a MATCH because the brand, name, and category all align with the SKU."
 }}
 """
             
@@ -227,7 +245,7 @@ Example for SKU 'SHAN_KARAHI_MIX' and the provided image:
             try:
                 clean_response = validation_response.strip().lstrip('```json').rstrip('```').strip()
                 validation_data = json.loads(clean_response)
-                validation_data['web_search_used'] = False # No longer using web search
+                validation_data['web_search_used'] = False
                 return validation_data
             except json.JSONDecodeError:
                 # Fallback to simple validation if JSON parsing fails
@@ -240,43 +258,56 @@ Example for SKU 'SHAN_KARAHI_MIX' and the provided image:
 
     def simple_image_validation(self, sku, image_bytes, mime_type):
         """
-        Direct and robust fallback validation based on a simple checklist.
+        Highly detailed, step-by-step fallback validation protocol.
         """
         readable_sku = sku.replace('_', ' ').replace('__', ' ')
         
         simple_prompt = f"""
-DIRECT IMAGE VALIDATION CHECKLIST:
+HIGHLY DETAILED IMAGE-SKU VALIDATION PROTOCOL:
 
-You are validating an image against SKU: "{sku}" (which suggests: "{readable_sku}").
-Your task is to check for ANY direct evidence linking the image to the SKU.
+You are an expert image analyst. Your task is to perform a detailed, step-by-step analysis to determine if the provided image matches the SKU. Follow this protocol precisely.
 
-**Answer YES or NO to each question in this checklist:**
+**SKU for analysis:** "{sku}"
+**Cleaned SKU words for analysis:** "{readable_sku}"
 
-1.  **Brand Match:** Does the image contain any brand name (e.g., "Shan", "National") that is present in the SKU "{readable_sku}"?
-    - Analyze text on the packaging.
-    - Answer: YES/NO
+---
+**STEP 1: Deconstruct the SKU**
+Break down the cleaned SKU "{readable_sku}" into a list of individual keywords.
 
-2.  **Product Name Match:** Does the image contain a product name (e.g., "Karahi", "Baisan", "Spice") that is present in the SKU "{readable_sku}"?
-    - Analyze text on the packaging.
-    - Answer: YES/NO
+**STEP 2: Analyze Text Content from the Image**
+Carefully read ALL text visible on the product packaging in the image. List all significant words you can identify.
 
-3.  **Category Match:** Is the image in the same general product category (e.g., food, spice, masala, recipe mix, packaged good) as suggested by the SKU "{readable_sku}"?
-    - Analyze the image content.
-    - Answer: YES/NO
+**STEP 3: Analyze Visual Content of the Image**
+Describe the object in the image. What is it? What is its category?
 
-**FINAL DECISION:**
-- If ANY of the answers above is "YES" → The image is a MATCH.
-- If ALL of the answers are "NO" → The image is a MISMATCH.
+**STEP 4: Compare and Decide (The Matching Logic)**
+Based *only* on your analysis from Steps 1, 2, and 3, answer the following.
+
+*   **Brand Match Check:** Do any brand-related keywords from the SKU (Step 1) appear in the text from the image (Step 2)? (e.g., 'shan', 'national')
+*   **Product Name Match Check:** Do any product name keywords from the SKU (Step 1) appear in the text from the image (Step 2)? (e.g., 'karahi', 'baisan')
+*   **Category Match Check:** Is the visual category from Step 3 consistent with the SKU from Step 1?
+
+**FINAL CONCLUSION:**
+If you answered YES to AT LEAST ONE of the checks in Step 4, the final result is a MATCH. Otherwise, it is a MISMATCH.
+
+---
+**STEP 5: Generate Final JSON Output**
+Now, provide your final answer in a single, raw JSON object. Do not add any text before or after the JSON. The JSON must contain your step-by-step analysis.
 
 Return ONLY this JSON:
 {{
   "match": true/false,
-  "checklist": {{
-    "brand_match": "YES/NO",
-    "name_match": "YES/NO",
-    "category_match": "YES/NO"
+  "analysis": {{
+    "sku_keywords": ["list", "of", "keywords", "from", "step1"],
+    "image_text": ["list", "of", "words", "from", "step2"],
+    "image_category": "description from step3"
   }},
-  "reason": "Explain your decision based on the checklist answers."
+  "decision_logic": {{
+    "brand_match": "YES/NO. Reason...",
+    "name_match": "YES/NO. Reason...",
+    "category_match": "YES/NO. Reason..."
+  }},
+  "reason": "Final summary of your decision based on the matching logic."
 }}
 """
         
@@ -291,7 +322,12 @@ Return ONLY this JSON:
         except json.JSONDecodeError:
             return {
                 'match': True,  # Default to accept if validation fails
-                'checklist': {
+                'analysis': {
+                    'sku_keywords': [],
+                    'image_text': [],
+                    'image_category': 'Unknown'
+                },
+                'decision_logic': {
                     'brand_match': 'unknown',
                     'name_match': 'unknown',
                     'category_match': 'unknown'

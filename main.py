@@ -167,19 +167,19 @@ class ProductDescriptionGenerator:
 
     def enhanced_image_validation(self, sku, image_bytes, mime_type):
         """
-        Strict visual validation that compares uploaded image with web images
-        Analyzes shape, color, and visual similarity with online product images
+        Flexible visual validation that accepts images if ANY criteria match
+        Checks for brand word, shape, color, or any hint of similarity
         """
         try:
             # Step 1: Search for product information and images online
             search_result = self.search_product_online(sku)
             clean_sku = sku.replace('_', ' ').replace('-', ' ').replace('__', ' ')
             
-            # Step 2: Create strict visual validation prompt with web comparison
+            # Step 2: Create flexible validation prompt with multiple matching criteria
             enhanced_prompt = f"""
-STRICT VISUAL VALIDATION WITH WEB COMPARISON:
+FLEXIBLE VISUAL VALIDATION WITH MULTIPLE MATCHING CRITERIA:
 
-You are performing a STRICT visual analysis to determine if the uploaded image matches the product SKU.
+You are performing a FLEXIBLE visual analysis to determine if the uploaded image matches the product SKU.
 
 SKU: "{sku}" (clean: "{clean_sku}")
 WEB SEARCH CONTEXT: {search_result.get('search_query', sku)}
@@ -187,11 +187,11 @@ USER'S IMAGE: [Image will be provided]
 
 VALIDATION PROCESS:
 1. Analyze the user's uploaded image for:
-   - Product shape and packaging design
+   - Product packaging and design
    - Color scheme and brand colors
-   - Text/labeling on packaging
-   - Overall visual appearance
-   - Product category and type
+   - Text/labeling on packaging (brand names, product names)
+   - Product type and category
+   - Visual characteristics and appearance
 
 2. Compare with what the SKU "{clean_sku}" should represent:
    - Expected product type (spice, food, ingredient, etc.)
@@ -199,44 +199,47 @@ VALIDATION PROCESS:
    - Common brand colors and design elements
    - Expected visual characteristics
 
-3. Perform STRICT visual matching:
-   - Does the image show the correct product category?
-   - Does the packaging shape/style match expectations?
-   - Do the colors match typical brand/product colors?
-   - Is the overall visual appearance consistent with the SKU?
+3. Check for ANY of these matching criteria (ACCEPT if ANY match):
+   - BRAND WORD MATCH: Does the image contain brand names or words that match the SKU?
+   - SHAPE MATCH: Does the packaging shape/style match typical products in this category?
+   - COLOR MATCH: Do the colors match typical brand/product colors for this SKU?
+   - HINT MATCH: Are there any visual hints or elements that suggest this is the right product?
+   - CATEGORY MATCH: Is it the same product category (food, spice, ingredient, etc.)?
 
-ACCEPTANCE CRITERIA (STRICT):
-- Image must show the correct product category
-- Visual elements must be consistent with SKU expectations
-- Colors and packaging should match typical product appearance
-- Overall visual similarity to expected product
+ACCEPTANCE CRITERIA (FLEXIBLE - ANY MATCH IS ENOUGH):
+- Brand word/name matches → ACCEPT
+- Shape/packaging style matches → ACCEPT
+- Color scheme matches → ACCEPT
+- Any visual hint suggests it's the right product → ACCEPT
+- Same product category with similar characteristics → ACCEPT
+- Similar packaging design → ACCEPT
+- Matching brand elements → ACCEPT
 
-REJECTION CRITERIA (STRICT):
-- Wrong product category
-- Inconsistent visual elements
-- Mismatched colors or packaging
-- Completely different product type
+REJECTION CRITERIA (ONLY IF NO MATCHES):
+- Completely wrong product category (electronics, furniture, clothing, etc.)
+- No brand words, shape, color, or hint matches
 - Non-product images (people, landscapes, etc.)
 - Blank or corrupted images
 
 EXAMPLES:
-- SKU: "SHAN_MASALA" + Image: spice product with typical Shan packaging → ACCEPT
-- SKU: "BAISAN" + Image: food product with consistent branding → ACCEPT
-- SKU: "SHAN_MASALA" + Image: electronics or furniture → REJECT
-- SKU: "BAISAN" + Image: completely different food category → REJECT
+- SKU: "SHAN_MASALA" + Image: any Shan brand product → ACCEPT (brand match)
+- SKU: "BAISAN" + Image: similar shaped packaging → ACCEPT (shape match)
+- SKU: "NATIONAL_SPICE" + Image: similar color scheme → ACCEPT (color match)
+- SKU: "SHAN_MASALA" + Image: any spice product → ACCEPT (category match)
+- SKU: "BAISAN" + Image: electronics/phone → REJECT (no matches)
 
 Return ONLY this JSON:
 {{
   "match": true/false,
-  "sku_type": "detailed description of what SKU suggests",
-  "image_type": "detailed description of what image shows",
-  "visual_analysis": "analysis of shape, color, and visual elements",
-  "similarity_score": "high/medium/low based on visual matching",
-  "reason": "detailed explanation of decision",
+  "sku_type": "description of what SKU suggests",
+  "image_type": "description of what image shows",
+  "matching_criteria": ["brand_word", "shape", "color", "hint", "category"],
+  "matched_elements": "which specific elements matched",
+  "reason": "explanation of decision",
   "confidence": "high/medium/low"
 }}
 
-Perform STRICT visual analysis - only accept if image truly matches the product.
+Be FLEXIBLE - accept if ANY criteria match (brand, shape, color, hint, category).
 """
             
             # Make the validation call
@@ -258,15 +261,15 @@ Perform STRICT visual analysis - only accept if image truly matches the product.
 
     def simple_image_validation(self, sku, image_bytes, mime_type):
         """
-        Strict validation as fallback when enhanced validation fails
-        Analyzes visual elements and compares with expected product characteristics
+        Flexible validation as fallback when enhanced validation fails
+        Accepts images if ANY criteria match (brand, shape, color, hint)
         """
         readable_sku = sku.replace('_', ' ').replace('__', ' ')
         
         simple_prompt = f"""
-STRICT IMAGE VALIDATION:
+FLEXIBLE IMAGE VALIDATION:
 
-You are performing a STRICT visual analysis to validate if the uploaded image matches the product SKU.
+You are performing a FLEXIBLE visual analysis to validate if the uploaded image matches the product SKU.
 
 SKU: "{sku}" (suggests: {readable_sku})
 Image: [Image will be provided]
@@ -275,6 +278,7 @@ VISUAL ANALYSIS PROCESS:
 1. Examine the uploaded image for:
    - Product packaging and design
    - Color scheme and branding
+   - Text/labeling on packaging (brand names, product names)
    - Product type and category
    - Visual characteristics and appearance
 
@@ -283,38 +287,40 @@ VISUAL ANALYSIS PROCESS:
    - What visual elements are expected?
    - What colors and packaging style are typical?
 
-3. Perform strict visual matching:
-   - Does the image show the expected product category?
-   - Are the visual elements consistent with the SKU?
-   - Do colors and design match expectations?
-   - Is there visual similarity to the expected product?
+3. Check for ANY of these matching criteria (ACCEPT if ANY match):
+   - BRAND WORD MATCH: Does the image contain brand names or words that match the SKU?
+   - SHAPE MATCH: Does the packaging shape/style match typical products in this category?
+   - COLOR MATCH: Do the colors match typical brand/product colors for this SKU?
+   - HINT MATCH: Are there any visual hints or elements that suggest this is the right product?
+   - CATEGORY MATCH: Is it the same product category (food, spice, ingredient, etc.)?
 
-ACCEPTANCE CRITERIA (STRICT):
-- Correct product category
-- Consistent visual elements
-- Matching colors and packaging
-- Overall visual similarity to expected product
+ACCEPTANCE CRITERIA (FLEXIBLE - ANY MATCH IS ENOUGH):
+- Brand word/name matches → ACCEPT
+- Shape/packaging style matches → ACCEPT
+- Color scheme matches → ACCEPT
+- Any visual hint suggests it's the right product → ACCEPT
+- Same product category with similar characteristics → ACCEPT
+- Similar packaging design → ACCEPT
+- Matching brand elements → ACCEPT
 
-REJECTION CRITERIA (STRICT):
-- Wrong product category
-- Inconsistent visual elements
-- Mismatched colors or packaging
-- Completely different product type
-- Non-product images
+REJECTION CRITERIA (ONLY IF NO MATCHES):
+- Completely wrong product category (electronics, furniture, clothing, etc.)
+- No brand words, shape, color, or hint matches
+- Non-product images (people, landscapes, etc.)
 - Blank or corrupted images
 
 Return ONLY this JSON:
 {{
   "match": true/false,
-  "sku_type": "detailed description of what SKU suggests",
-  "image_type": "detailed description of what image shows",
-  "visual_analysis": "analysis of visual elements and comparison",
-  "similarity_score": "high/medium/low based on visual matching",
-  "reason": "detailed explanation of decision",
+  "sku_type": "description of what SKU suggests",
+  "image_type": "description of what image shows",
+  "matching_criteria": ["brand_word", "shape", "color", "hint", "category"],
+  "matched_elements": "which specific elements matched",
+  "reason": "explanation of decision",
   "confidence": "high/medium/low"
 }}
 
-Perform STRICT visual analysis - only accept if image truly matches the product.
+Be FLEXIBLE - accept if ANY criteria match (brand, shape, color, hint, category).
 """
         
         validation_response = self._make_api_call(simple_prompt, image_bytes=image_bytes, mime_type=mime_type)
@@ -327,12 +333,12 @@ Perform STRICT visual analysis - only accept if image truly matches the product.
             return validation_data
         except json.JSONDecodeError:
             return {
-                'match': False,  # Default to reject if validation fails (strict approach)
+                'match': True,  # Default to accept if validation fails (flexible approach)
                 'sku_type': 'Unknown',
                 'image_type': 'Unknown',
-                'visual_analysis': 'Validation parsing failed',
-                'similarity_score': 'low',
-                'reason': 'Validation parsing failed, defaulting to reject',
+                'matching_criteria': ['unknown'],
+                'matched_elements': 'Validation parsing failed',
+                'reason': 'Validation parsing failed, defaulting to accept',
                 'web_search_used': False,
                 'confidence': 'low'
             }

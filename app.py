@@ -1324,4 +1324,6 @@ def main():
             pass  # If file can't be read, just skip the button
 
 if __name__ == "__main__":
+    if os.path.exists('ignored_products_due_to_mismatch.csv'):
+        os.remove('ignored_products_due_to_mismatch.csv')
     main()

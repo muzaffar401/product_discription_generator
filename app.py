@@ -526,16 +526,23 @@ def reset_all_data():
         'enriched_products.csv.tmp',
         'enriched_products_with_images.csv.tmp',
         'processing_status.json.tmp',
-        PROCESSING_LOCK_FILE,
-        'ignored_products_due_to_mismatch.csv'  # Ensure ignored file is also deleted
+        PROCESSING_LOCK_FILE
+        # Do NOT delete ignored_products_due_to_mismatch.csv here yet
     ]
-    
-    # --- Ensure ignored file is deleted before anything else ---
-    try:
-        if os.path.exists('ignored_products_due_to_mismatch.csv'):
-            os.remove('ignored_products_due_to_mismatch.csv')
-    except Exception as e:
-        print(f"Error removing ignored_products_due_to_mismatch.csv: {str(e)}")
+
+    # Remove the lock file to signal the thread to abort
+    remove_processing_lock()
+
+    # --- Wait for the processing thread to actually stop ---
+    if processing_thread and processing_thread.is_alive():
+        try:
+            processing_thread.join(timeout=5)  # Wait up to 5 seconds for the thread to finish
+        except Exception as e:
+            print(f"Error waiting for processing thread to stop: {str(e)}")
+        processing_thread = None
+
+    # Now delete all files, including the ignored products file
+    files_to_remove.append('ignored_products_due_to_mismatch.csv')
 
     for file_path in files_to_remove:
         try:
@@ -543,16 +550,11 @@ def reset_all_data():
                 os.remove(file_path)
         except Exception as e:
             print(f"Error removing {file_path}: {str(e)}")
-    
+
     # Clear session state
     st.session_state.clear()
-    # Also ensure lock is removed
+    # Also ensure lock is removed (redundant, but safe)
     remove_processing_lock()
-    # --- NEW: Stop any running processing thread ---
-    if processing_thread and processing_thread.is_alive():
-        # Remove the lock file to signal the thread to abort
-        remove_processing_lock()
-        processing_thread = None
 
 # Simple, modern, theme-adaptive CSS
 st.markdown("""

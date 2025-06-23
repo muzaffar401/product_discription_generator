@@ -760,6 +760,15 @@ def process_dataframe(df):
     return cleaned_df, original_count, cleaned_count
 
 def main():
+    # --- Clean up ignored file if it exists but is empty (production robustness) ---
+    if os.path.exists('ignored_products_due_to_mismatch.csv'):
+        try:
+            df_ignored = pd.read_csv('ignored_products_due_to_mismatch.csv')
+            if df_ignored.empty:
+                os.remove('ignored_products_due_to_mismatch.csv')
+        except Exception:
+            os.remove('ignored_products_due_to_mismatch.csv')
+
     st.markdown("""
         <div class='simple-title'>📝 Product Description Generator</div>
         <div class='simple-subtitle'>Transform your product data into compelling descriptions using AI</div>
@@ -1298,7 +1307,9 @@ def main():
     # --- NEW: Download button for ignored products due to mismatch ---
     if os.path.exists('ignored_products_due_to_mismatch.csv'):
         try:
-            if os.path.getsize('ignored_products_due_to_mismatch.csv') > 0:
+            df_ignored = pd.read_csv('ignored_products_due_to_mismatch.csv')
+            # Only show if there is at least one row (not just headers)
+            if not df_ignored.empty:
                 last_modified = datetime.datetime.fromtimestamp(os.path.getmtime('ignored_products_due_to_mismatch.csv')).strftime('%Y-%m-%d %H:%M:%S')
                 st.markdown(f"<div class='styled-download'><b>⚠️ A file of ignored products due to mismatch was found (last updated: {last_modified}).</b><br>You can download it below:</div>", unsafe_allow_html=True)
                 with open('ignored_products_due_to_mismatch.csv', 'rb') as f:

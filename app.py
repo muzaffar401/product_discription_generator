@@ -1110,28 +1110,17 @@ def main():
 
                 try:
                     generator = ProductDescriptionGenerator(use_openai=use_openai)
-                    
-                    # Test API connection first
-                    if debug_mode:
-                        with st.spinner("Testing API connection..."):
-                            api_ok, api_message = test_api_connection(generator)
-                            if api_ok:
-                                st.success(f"✅ {api_message}")
-                            else:
-                                st.error(f"❌ {api_message}")
-                                return
-                    
                     # Prepare dataframe for processing
                     merged_df = cleaned_df.copy()
                     merged_df['description'] = ''
                     merged_df['related_products'] = ''
-                    
+                    # --- Remove image_name column if present ---
+                    if 'image_name' in merged_df.columns:
+                        merged_df = merged_df.drop(columns=['image_name'])
                     # Start background processing
-                    if start_background_processing(generator, merged_df, {}, 'enriched_products.csv', disable_web_comparison):
+                    if start_background_processing(generator, merged_df, {}, 'enriched_products.csv', False):
                         st.success("✅ Processing started! You can now switch tabs or close this window - processing will continue in the background.")
                         st.info("🔄 Return to this page to check progress and download results when complete.")
-                        if debug_mode:
-                            st.info("🐛 Debug mode enabled - check the terminal/console for detailed logs.")
                         st.rerun()
                     else:
                         st.error("❌ Failed to start processing. Please try again.")
@@ -1244,15 +1233,15 @@ def main():
                 try:
                     generator = ProductDescriptionGenerator(use_openai=use_openai)
                     
-                    # Test API connection first
-                    if debug_mode:
-                        with st.spinner("Testing API connection..."):
-                            api_ok, api_message = test_api_connection(generator)
-                            if api_ok:
-                                st.success(f"✅ {api_message}")
-                            else:
-                                st.error(f"❌ {api_message}")
-                                return
+                    # Test API connection first (no debug_mode)
+                    # (If you want to always test, uncomment below)
+                    # with st.spinner("Testing API connection..."):
+                    #     api_ok, api_message = test_api_connection(generator)
+                    #     if api_ok:
+                    #         st.success(f"✅ {api_message}")
+                    #     else:
+                    #         st.error(f"❌ {api_message}")
+                    #         return
                     
                     # Prepare dataframe for processing
                     merged_df = cleaned_df.copy()
@@ -1260,11 +1249,9 @@ def main():
                     merged_df['related_products'] = ''
 
                     # Start background processing
-                    if start_background_processing(generator, merged_df, image_name_mapping, 'enriched_products_with_images.csv', disable_web_comparison):
+                    if start_background_processing(generator, merged_df, image_name_mapping, 'enriched_products_with_images.csv', False):
                         st.success("✅ Processing started! You can now switch tabs or close this window - processing will continue in the background.")
                         st.info("🔄 Return to this page to check progress and download results when complete.")
-                        if debug_mode:
-                            st.info("🐛 Debug mode enabled - check the terminal/console for detailed logs.")
                         st.rerun()
                     else:
                         st.error("❌ Failed to start processing. Please try again.")

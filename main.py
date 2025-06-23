@@ -821,18 +821,19 @@ Be LENIENT - only reject if completely opposite categories.
             }
 
     def generate_product_description(self, sku):
-        prompt = f"""Generate a compelling product description for a product with SKU: {sku}. 
+        prompt = f"""Generate a marketing-friendly product description for a product with SKU: {sku}.
 
-The description should be marketing-friendly, EXACTLY 1000 characters (including spaces), and highlight key features and benefits.
-
-IMPORTANT: Format the description in 2-3 paragraphs with EXACTLY 1000 characters:
-- First paragraph: Introduce the product and its main benefits
-- Second paragraph: Describe key features and specifications  
-- Third paragraph (optional): Add any additional benefits, usage tips, or call-to-action
-
-Make each paragraph engaging and informative. Use bullet points or numbered lists within paragraphs if needed for better readability.
-
-CRITICAL: The final description must be EXACTLY 1000 characters - no more, no less."""
+REQUIREMENTS:
+- The description must be a single, well-structured paragraph (no bullet points, no numbered lists, no line breaks).
+- The beginning and ending of the description must be unique for each product.
+- Do NOT mention any country name.
+- Do NOT use any special characters (except standard punctuation), extra spaces, or extra lines.
+- The description should be between 80 and 120 words and highlight key features and benefits.
+- The writing style should be engaging and natural, not repetitive.
+- Do not copy the same sentence structure for different products.
+- Do not use generic phrases like 'Introducing' or 'Experience the authentic'.
+- Do not use any markdown or formatting.
+"""
         return self._make_api_call(prompt)
 
     def find_related_products(self, current_sku_or_title, all_skus, num_related=3):
@@ -859,26 +860,18 @@ Return ONLY the SKUs of the most related products, separated by a pipe '|'. Do n
         prompt = """You are an expert product marketer. Analyze this product image to generate a product title and a compelling description.
 
 Instructions:
-1.  **Product Title**: Create a concise, SEO-friendly, and accurate title for the product in the image. If the image is unclear or you cannot confidently identify the product, return "Unknown Product".
-2.  **Product Description**: Write a marketing-friendly description of EXACTLY 1000 characters (including spaces) in 2-3 paragraphs:
-    - First paragraph: Introduce the product and its main benefits
-    - Second paragraph: Describe key features and specifications
-    - Third paragraph (optional): Add any additional benefits, usage tips, or call-to-action
-    If the title is "Unknown Product", the description should be "Could not generate description from image.".
+1.  Product Title: Create a concise, SEO-friendly, and accurate title for the product in the image. If the image is unclear or you cannot confidently identify the product, return 'Unknown Product'.
+2.  Product Description: Write a marketing-friendly description in a single, well-structured paragraph (no bullet points, no numbered lists, no line breaks). The beginning and ending of the description must be unique for each product. Do NOT mention any country name. Do NOT use any special characters (except standard punctuation), extra spaces, or extra lines. The description should be between 80 and 120 words and highlight key features and benefits. The writing style should be engaging and natural, not repetitive. Do not copy the same sentence structure for different products. Do not use generic phrases like 'Introducing' or 'Experience the authentic'. Do not use any markdown or formatting. If the title is 'Unknown Product', the description should be 'Could not generate description from image.'.
 
-CRITICAL: The final description must be EXACTLY 1000 characters - no more, no less.
-
-Return the result as a single raw JSON object with two keys: "title" and "description". Do not wrap it in markdown or any other text.
-Example for a clear image: {"title": "Shan Achar Ghost Masala 50g", "description": "Introducing the authentic Shan Achar Ghost Masala, a premium spice blend that brings the traditional flavors of South Asian cuisine to your kitchen. This carefully crafted masala combines the finest quality spices to create a rich, aromatic seasoning that elevates any dish to new heights of flavor.\n\nOur signature blend features a perfect balance of coriander, cumin, turmeric, and other hand-selected spices that have been roasted and ground to perfection. Each 50g pack contains the ideal proportions of ingredients, ensuring consistent taste and quality in every use. The masala is free from artificial preservatives and additives, maintaining the natural goodness of pure spices.\n\nWhether you're preparing traditional curries, marinating meats, or adding depth to vegetarian dishes, this versatile masala is your go-to seasoning. Its robust flavor profile makes it perfect for both everyday cooking and special occasions. Experience the authentic taste that has made Shan a trusted name in households worldwide."}
+Return the result as a single raw JSON object with two keys: 'title' and 'description'. Do not wrap it in markdown or any other text.
+Example for a clear image: {"title": "Shan Achar Ghost Masala 50g", "description": "A delicious spice mix..."}
 Example for an unclear image: {"title": "Unknown Product", "description": "Could not generate description from image."}
 """
         if sku:
             prompt += f"\n\nUse the following SKU for context: '{sku}'."
         if image_name:
             prompt += f" The original image file name is '{image_name}'."
-        
         response_text = self._make_api_call(prompt, image_bytes=image_bytes, mime_type=mime_type)
-        
         try:
             clean_response = response_text.strip().lstrip('```json').rstrip('```').strip()
             data = json.loads(clean_response)

@@ -905,7 +905,8 @@ def process_products(use_openai: bool = False):
             try:
                 df = pd.read_excel('sample_products.xls')
             except FileNotFoundError:
-                raise FileNotFoundError("No Excel file found. Please ensure sample_products.xlsx or sample_products.xls exists.")
+                print("No Excel file found. Please ensure sample_products.xlsx or sample_products.xls exists in the project directory. Exiting gracefully.")
+                return  # Exit gracefully instead of raising an error
         
         # Remove duplicates
         df = df.drop_duplicates(subset=['sku'])

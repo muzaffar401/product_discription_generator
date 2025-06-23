@@ -1297,16 +1297,20 @@ def main():
             )
     # --- NEW: Download button for ignored products due to mismatch ---
     if os.path.exists('ignored_products_due_to_mismatch.csv'):
-        last_modified = datetime.datetime.fromtimestamp(os.path.getmtime('ignored_products_due_to_mismatch.csv')).strftime('%Y-%m-%d %H:%M:%S')
-        st.markdown(f"<div class='styled-download'><b>⚠️ A file of ignored products due to mismatch was found (last updated: {last_modified}).</b><br>You can download it below:</div>", unsafe_allow_html=True)
-        with open('ignored_products_due_to_mismatch.csv', 'rb') as f:
-            st.download_button(
-                label="⬇️ Download Ignored Products (Mismatch)",
-                data=f,
-                file_name="ignored_products_due_to_mismatch.csv",
-                mime="text/csv",
-                key="download_ignored_mismatch"
-            )
+        try:
+            if os.path.getsize('ignored_products_due_to_mismatch.csv') > 0:
+                last_modified = datetime.datetime.fromtimestamp(os.path.getmtime('ignored_products_due_to_mismatch.csv')).strftime('%Y-%m-%d %H:%M:%S')
+                st.markdown(f"<div class='styled-download'><b>⚠️ A file of ignored products due to mismatch was found (last updated: {last_modified}).</b><br>You can download it below:</div>", unsafe_allow_html=True)
+                with open('ignored_products_due_to_mismatch.csv', 'rb') as f:
+                    st.download_button(
+                        label="⬇️ Download Ignored Products (Mismatch)",
+                        data=f,
+                        file_name="ignored_products_due_to_mismatch.csv",
+                        mime="text/csv",
+                        key="download_ignored_mismatch"
+                    )
+        except Exception as e:
+            pass  # If file can't be read, just skip the button
 
 if __name__ == "__main__":
     main()

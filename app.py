@@ -530,6 +530,13 @@ def reset_all_data():
         'ignored_products_due_to_mismatch.csv'  # Ensure ignored file is also deleted
     ]
     
+    # --- Ensure ignored file is deleted before anything else ---
+    try:
+        if os.path.exists('ignored_products_due_to_mismatch.csv'):
+            os.remove('ignored_products_due_to_mismatch.csv')
+    except Exception as e:
+        print(f"Error removing ignored_products_due_to_mismatch.csv: {str(e)}")
+
     for file_path in files_to_remove:
         try:
             if os.path.exists(file_path):

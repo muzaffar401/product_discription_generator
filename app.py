@@ -516,7 +516,7 @@ def start_background_processing(generator, df, image_name_mapping, output_file, 
 
 
 def reset_all_data():
-    """Reset all data files and clear history"""
+    """Reset all data files and clear history """
     files_to_remove = [
         'enriched_products.csv',
         'enriched_products_with_images.csv',

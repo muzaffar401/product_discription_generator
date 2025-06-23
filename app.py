@@ -497,11 +497,6 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
         save_status(error_status)
         remove_processing_lock()
 
-    # At the end of process_products_in_background or equivalent:
-    if not os.path.exists('ignored_products_due_to_mismatch.csv'):
-        # Create an empty file with headers if it doesn't exist
-        pd.DataFrame(columns=['sku', 'image_name', 'ignore_reason']).to_csv('ignored_products_due_to_mismatch.csv', index=False)
-
 def start_background_processing(generator, df, image_name_mapping, output_file, disable_web_comparison=False):
     """Start background processing in a separate thread"""
     global processing_thread
@@ -532,17 +527,15 @@ def reset_all_data():
         'enriched_products_with_images.csv.tmp',
         'processing_status.json.tmp',
         PROCESSING_LOCK_FILE,
-        'ignored_products_due_to_mismatch.csv'
+        'ignored_products_due_to_mismatch.csv'  # Ensure ignored file is also deleted
     ]
-
-    remove_processing_lock()
-
-    if processing_thread and processing_thread.is_alive():
-        try:
-            processing_thread.join(timeout=5)
-        except Exception as e:
-            print(f"Error waiting for processing thread to stop: {str(e)}")
-        processing_thread = None
+    
+    # --- Ensure ignored file is deleted before anything else ---
+    try:
+        if os.path.exists('ignored_products_due_to_mismatch.csv'):
+            os.remove('ignored_products_due_to_mismatch.csv')
+    except Exception as e:
+        print(f"Error removing ignored_products_due_to_mismatch.csv: {str(e)}")
 
     for file_path in files_to_remove:
         try:
@@ -550,13 +543,16 @@ def reset_all_data():
                 os.remove(file_path)
         except Exception as e:
             print(f"Error removing {file_path}: {str(e)}")
-
-    # Extra safety: explicitly delete keys
-    for key in ['df', 'scenario', 'uploaded_images']:
-        if key in st.session_state:
-            del st.session_state[key]
+    
+    # Clear session state
     st.session_state.clear()
+    # Also ensure lock is removed
     remove_processing_lock()
+    # --- NEW: Stop any running processing thread ---
+    if processing_thread and processing_thread.is_alive():
+        # Remove the lock file to signal the thread to abort
+        remove_processing_lock()
+        processing_thread = None
 
 # Simple, modern, theme-adaptive CSS
 st.markdown("""
@@ -762,13 +758,6 @@ def process_dataframe(df):
     return cleaned_df, original_count, cleaned_count
 
 def main():
-    # --- Always remove ignored file at the start of every session (robustness) ---
-    if os.path.exists('ignored_products_due_to_mismatch.csv'):
-        try:
-            os.remove('ignored_products_due_to_mismatch.csv')
-        except Exception:
-            pass
-
     st.markdown("""
         <div class='simple-title'>📝 Product Description Generator</div>
         <div class='simple-subtitle'>Transform your product data into compelling descriptions using AI</div>
@@ -1318,6 +1307,4 @@ def main():
             )
 
 if __name__ == "__main__":
-    if os.path.exists('ignored_products_due_to_mismatch.csv'):
-        os.remove('ignored_products_due_to_mismatch.csv')
     main()

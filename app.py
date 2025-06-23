@@ -517,6 +517,7 @@ def start_background_processing(generator, df, image_name_mapping, output_file, 
 
 def reset_all_data():
     """Reset all data files and clear history """
+    global processing_thread
     files_to_remove = [
         'enriched_products.csv',
         'enriched_products_with_images.csv',
@@ -540,6 +541,11 @@ def reset_all_data():
     st.session_state.clear()
     # Also ensure lock is removed
     remove_processing_lock()
+    # --- NEW: Stop any running processing thread ---
+    if processing_thread and processing_thread.is_alive():
+        # Remove the lock file to signal the thread to abort
+        remove_processing_lock()
+        processing_thread = None
 
 # Simple, modern, theme-adaptive CSS
 st.markdown("""

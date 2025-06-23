@@ -532,28 +532,9 @@ def reset_all_data():
             print(f"Error removing {file_path}: {str(e)}")
     
     # Clear session state
-    if 'df' in st.session_state:
-        del st.session_state['df']
-    if 'scenario' in st.session_state:
-        del st.session_state['scenario']
-    if 'uploaded_images' in st.session_state:
-        del st.session_state['uploaded_images']
-
-    
-    for file_path in files_to_remove:
-        try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        except Exception as e:
-            print(f"Error removing {file_path}: {str(e)}")
-    
-    # Clear session state
-    if 'df' in st.session_state:
-        del st.session_state['df']
-    if 'scenario' in st.session_state:
-        del st.session_state['scenario']
-    if 'uploaded_images' in st.session_state:
-        del st.session_state['uploaded_images']
+    st.session_state.clear()
+    # Also ensure lock is removed
+    remove_processing_lock()
 
 # Simple, modern, theme-adaptive CSS
 st.markdown("""

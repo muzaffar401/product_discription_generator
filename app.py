@@ -235,6 +235,13 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
     try:
         create_processing_lock()
         
+        # --- Always clear ignored file at the start of processing ---
+        if os.path.exists('ignored_products_due_to_mismatch.csv'):
+            try:
+                os.remove('ignored_products_due_to_mismatch.csv')
+            except Exception as e:
+                print(f"Error removing ignored_products_due_to_mismatch.csv at start: {str(e)}")
+        
         # Test API connection first
         api_ok, api_message = test_api_connection(generator)
         if not api_ok:
@@ -478,6 +485,12 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
 
         # --- NEW: Save ignored products to CSV if any ---
         if ignored_products:
+            # Ensure file is not left over from previous runs
+            if os.path.exists('ignored_products_due_to_mismatch.csv'):
+                try:
+                    os.remove('ignored_products_due_to_mismatch.csv')
+                except Exception as e:
+                    print(f"Error removing ignored_products_due_to_mismatch.csv before save: {str(e)}")
             ignored_df = pd.DataFrame(ignored_products)
             ignored_df.to_csv('ignored_products_due_to_mismatch.csv', index=False)
 

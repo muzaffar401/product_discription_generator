@@ -777,7 +777,7 @@ def main():
         if st.button("🔄 Reset All Data", type="secondary", help="Clear all processed files and start fresh"):
             reset_all_data()
             st.success("✅ All data has been reset! Please refresh the page.")
-            st.experimental_rerun()
+            st.rerun()
     
     # Add manual refresh button
     with col2:

@@ -268,6 +268,9 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                 if col in existing_df.columns:
                     df[col] = existing_df[col]
 
+        # --- NEW: List to collect ignored products due to mismatch ---
+        ignored_products = []
+
         for processed_count, (i, row) in enumerate(df.iterrows(), 1):
             sku = None
             image_name = None
@@ -360,17 +363,14 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                                 error_message += f"Web image comparison was used. "
                             error_message += f"Reason: {reason}"
                             
-                            print(f"AI VALIDATION FAILED - STOPPING PROCESSING: {error_message}")
-                            # Set error status immediately
-                            status = {
-                                'current': processed_count, 'total': total_products,
-                                'current_sku': current_item_identifier, 'status': 'error',
-                                'error': error_message,
-                                'last_updated': datetime.datetime.now().isoformat()
-                            }
-                            save_status(status)
-                            remove_processing_lock()
-                            return  # Exit the function immediately
+                            print(f"AI VALIDATION FAILED - IGNORING PRODUCT: {error_message}")
+                            # --- NEW: Add to ignored products and remove from main DataFrame ---
+                            ignored_row = row.copy()
+                            ignored_row['ignore_reason'] = error_message
+                            ignored_products.append(ignored_row)
+                            df.drop(i, inplace=True)
+                            save_progress(df, output_file)
+                            continue  # Do not stop, just skip this product
                         else:
                             print(f"AI validation PASSED for {sku} (confidence: {confidence})")
 
@@ -450,20 +450,13 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                 
                 # Check if this is a critical image-SKU mismatch
                 if "Image-SKU Mismatch" in error_message or "CRITICAL MISMATCH" in error_message:
-                    # Set error status and stop processing
-                    status = {
-                        'current': processed_count, 'total': total_products, 
-                        'current_sku': current_item_identifier, 'status': 'error', 
-                        'error': error_message,
-                        'last_updated': datetime.datetime.now().isoformat()
-                    }
-                    save_status(status)
-                    remove_processing_lock()
-                    
-                    # Log the critical error
-                    print(f"CRITICAL ERROR - Processing stopped due to Image-SKU Mismatch: {error_message}")
-                    return
-                
+                    # --- NEW: Add to ignored products and remove from main DataFrame ---
+                    ignored_row = row.copy()
+                    ignored_row['ignore_reason'] = error_message
+                    ignored_products.append(ignored_row)
+                    df.drop(i, inplace=True)
+                    save_progress(df, output_file)
+                    continue  # Do not stop, just skip this product
                 # For other errors, continue processing but mark this product as failed
                 df.at[i, 'description'] = f'Processing failed: {error_message[:100]}...'
                 df.at[i, 'related_products'] = 'Processing failed'
@@ -477,6 +470,11 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
                 }
                 save_status(status)
                 continue
+
+        # --- NEW: Save ignored products to CSV if any ---
+        if ignored_products:
+            ignored_df = pd.DataFrame(ignored_products)
+            ignored_df.to_csv('ignored_products_due_to_mismatch.csv', index=False)
 
         final_status = {
             'current': total_products, 'total': total_products, 
@@ -511,6 +509,7 @@ def start_background_processing(generator, df, image_name_mapping, output_file, 
     processing_thread.start()
     return True
 
+
 def reset_all_data():
     """Reset all data files and clear history"""
     files_to_remove = [
@@ -521,8 +520,25 @@ def reset_all_data():
         'enriched_products.csv.tmp',
         'enriched_products_with_images.csv.tmp',
         'processing_status.json.tmp',
-        PROCESSING_LOCK_FILE
+        PROCESSING_LOCK_FILE,
+        'ignored_products_due_to_mismatch.csv'  # Ensure ignored file is also deleted
     ]
+    
+    for file_path in files_to_remove:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"Error removing {file_path}: {str(e)}")
+    
+    # Clear session state
+    if 'df' in st.session_state:
+        del st.session_state['df']
+    if 'scenario' in st.session_state:
+        del st.session_state['scenario']
+    if 'uploaded_images' in st.session_state:
+        del st.session_state['uploaded_images']
+
     
     for file_path in files_to_remove:
         try:
@@ -879,30 +895,6 @@ def main():
             key="model_select",
             help="Select the AI model. For OpenAI, ensure a valid API key is in your .env file."
         )
-
-        # Add debug mode option
-        debug_mode = st.checkbox(
-            "Debug Mode",
-            value=False,
-            help="Enable detailed logging to help troubleshoot issues"
-        )
-
-        # Add option to disable web image comparison
-        disable_web_comparison = st.checkbox(
-            "Disable Web Image Comparison",
-            value=False,
-            help="Disable strict web image comparison to avoid false mismatches. Uses only local AI validation."
-        )
-
-        # Add validation type information
-        # st.markdown("""
-        #     <div class='simple-info'>
-        #         <b>🔍 Validation Rules:</b><br>
-        #         • <b>Food/Spices:</b> STRICT validation (checks brand names, product types)<br>
-        #         • <b>Shoes/Electronics:</b> SHAPE-BASED validation (checks physical form only)<br>
-        #         • <b>Other products:</b> DEFAULT validation (lenient)
-        #     </div>
-        # """, unsafe_allow_html=True)
 
         scenario_options = [
             "Select your scenario",
@@ -1314,6 +1306,18 @@ def main():
                 file_name="enriched_products_with_images.csv",
                 mime="text/csv",
                 key="download_image_always"
+            )
+    # --- NEW: Download button for ignored products due to mismatch ---
+    if os.path.exists('ignored_products_due_to_mismatch.csv'):
+        last_modified = datetime.datetime.fromtimestamp(os.path.getmtime('ignored_products_due_to_mismatch.csv')).strftime('%Y-%m-%d %H:%M:%S')
+        st.markdown(f"<div class='styled-download'><b>⚠️ A file of ignored products due to mismatch was found (last updated: {last_modified}).</b><br>You can download it below:</div>", unsafe_allow_html=True)
+        with open('ignored_products_due_to_mismatch.csv', 'rb') as f:
+            st.download_button(
+                label="⬇️ Download Ignored Products (Mismatch)",
+                data=f,
+                file_name="ignored_products_due_to_mismatch.csv",
+                mime="text/csv",
+                key="download_ignored_mismatch"
             )
 
 if __name__ == "__main__":

@@ -895,14 +895,14 @@ def main():
         )
 
         # Add validation type information
-        st.markdown("""
-            <div class='simple-info'>
-                <b>🔍 Validation Rules:</b><br>
-                • <b>Food/Spices:</b> STRICT validation (checks brand names, product types)<br>
-                • <b>Shoes/Electronics:</b> SHAPE-BASED validation (checks physical form only)<br>
-                • <b>Other products:</b> DEFAULT validation (lenient)
-            </div>
-        """, unsafe_allow_html=True)
+        # st.markdown("""
+        #     <div class='simple-info'>
+        #         <b>🔍 Validation Rules:</b><br>
+        #         • <b>Food/Spices:</b> STRICT validation (checks brand names, product types)<br>
+        #         • <b>Shoes/Electronics:</b> SHAPE-BASED validation (checks physical form only)<br>
+        #         • <b>Other products:</b> DEFAULT validation (lenient)
+        #     </div>
+        # """, unsafe_allow_html=True)
 
         scenario_options = [
             "Select your scenario",

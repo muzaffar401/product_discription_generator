@@ -272,6 +272,11 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
         ignored_products = []
 
         for processed_count, (i, row) in enumerate(df.iterrows(), 1):
+            # --- ABORT if lock file is missing (reset was triggered) ---
+            if not os.path.exists(PROCESSING_LOCK_FILE):
+                print("Processing lock file missing. Aborting processing due to reset.")
+                break
+            
             sku = None
             image_name = None
             

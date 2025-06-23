@@ -74,7 +74,7 @@ class ProductDescriptionGenerator:
                         return "API_CALL_FAILED"
             return "API_CALL_FAILED"
         else:
-            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+            model = genai.GenerativeModel('gemini-2.0-flash')
             for attempt in range(retries):
                 try:
                     content = [prompt]

@@ -235,13 +235,6 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
     try:
         create_processing_lock()
         
-        # --- Always clear ignored file at the start of processing ---
-        if os.path.exists('ignored_products_due_to_mismatch.csv'):
-            try:
-                os.remove('ignored_products_due_to_mismatch.csv')
-            except Exception as e:
-                print(f"Error removing ignored_products_due_to_mismatch.csv at start: {str(e)}")
-        
         # Test API connection first
         api_ok, api_message = test_api_connection(generator)
         if not api_ok:
@@ -485,12 +478,6 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
 
         # --- NEW: Save ignored products to CSV if any ---
         if ignored_products:
-            # Ensure file is not left over from previous runs
-            if os.path.exists('ignored_products_due_to_mismatch.csv'):
-                try:
-                    os.remove('ignored_products_due_to_mismatch.csv')
-                except Exception as e:
-                    print(f"Error removing ignored_products_due_to_mismatch.csv before save: {str(e)}")
             ignored_df = pd.DataFrame(ignored_products)
             ignored_df.to_csv('ignored_products_due_to_mismatch.csv', index=False)
 
@@ -1308,22 +1295,16 @@ def main():
             )
     # --- NEW: Download button for ignored products due to mismatch ---
     if os.path.exists('ignored_products_due_to_mismatch.csv'):
-        # Only show if file is not empty (has at least one row of data)
-        try:
-            ignored_df = pd.read_csv('ignored_products_due_to_mismatch.csv')
-            if not ignored_df.empty:
-                last_modified = datetime.datetime.fromtimestamp(os.path.getmtime('ignored_products_due_to_mismatch.csv')).strftime('%Y-%m-%d %H:%M:%S')
-                st.markdown(f"<div class='styled-download'><b>⚠️ A file of ignored products due to mismatch was found (last updated: {last_modified}).</b><br>You can download it below:</div>", unsafe_allow_html=True)
-                with open('ignored_products_due_to_mismatch.csv', 'rb') as f:
-                    st.download_button(
-                        label="⬇️ Download Ignored Products (Mismatch)",
-                        data=f,
-                        file_name="ignored_products_due_to_mismatch.csv",
-                        mime="text/csv",
-                        key="download_ignored_mismatch"
-                    )
-        except Exception as e:
-            print(f"Error reading ignored_products_due_to_mismatch.csv: {str(e)}")
+        last_modified = datetime.datetime.fromtimestamp(os.path.getmtime('ignored_products_due_to_mismatch.csv')).strftime('%Y-%m-%d %H:%M:%S')
+        st.markdown(f"<div class='styled-download'><b>⚠️ A file of ignored products due to mismatch was found (last updated: {last_modified}).</b><br>You can download it below:</div>", unsafe_allow_html=True)
+        with open('ignored_products_due_to_mismatch.csv', 'rb') as f:
+            st.download_button(
+                label="⬇️ Download Ignored Products (Mismatch)",
+                data=f,
+                file_name="ignored_products_due_to_mismatch.csv",
+                mime="text/csv",
+                key="download_ignored_mismatch"
+            )
 
 if __name__ == "__main__":
     main()

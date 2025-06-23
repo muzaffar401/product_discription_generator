@@ -757,14 +757,12 @@ def process_dataframe(df):
     return cleaned_df, original_count, cleaned_count
 
 def main():
-    # --- Clean up ignored file if it exists but is empty (production robustness) ---
+    # --- Always remove ignored file at the start of every session (robustness) ---
     if os.path.exists('ignored_products_due_to_mismatch.csv'):
         try:
-            df_ignored = pd.read_csv('ignored_products_due_to_mismatch.csv')
-            if df_ignored.empty:
-                os.remove('ignored_products_due_to_mismatch.csv')
-        except Exception:
             os.remove('ignored_products_due_to_mismatch.csv')
+        except Exception:
+            pass
 
     st.markdown("""
         <div class='simple-title'>📝 Product Description Generator</div>

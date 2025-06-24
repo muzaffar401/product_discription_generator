@@ -260,14 +260,6 @@ def process_products_in_background(generator, df, image_name_mapping, output_fil
         if 'related_products' not in df.columns:
             df['related_products'] = ''
 
-        # Load existing progress if available
-        existing_df = load_progress(output_file)
-        if existing_df is not None and len(existing_df) == len(df):
-            # Merge existing progress with current dataframe
-            for col in ['description', 'related_products']:
-                if col in existing_df.columns:
-                    df[col] = existing_df[col]
-
         # --- NEW: List to collect ignored products due to mismatch ---
         ignored_products = []
 
@@ -548,11 +540,14 @@ def reset_all_data():
     st.session_state.clear()
     # Also ensure lock is removed
     remove_processing_lock()
-    # --- NEW: Stop any running processing thread ---
+    # --- Ensure any running processing thread is fully stopped ---
     if processing_thread and processing_thread.is_alive():
         # Remove the lock file to signal the thread to abort
         remove_processing_lock()
-        processing_thread = None
+        # Wait for the thread to exit (max 10 seconds)
+        processing_thread.join(timeout=10)
+        # Optionally, you could check if it's still alive and warn, but usually it will exit
+    processing_thread = None
 
 # Simple, modern, theme-adaptive CSS
 st.markdown("""
